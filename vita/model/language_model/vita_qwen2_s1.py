@@ -42,21 +42,10 @@ class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
     def get_model(self):
         return self.model
 
-    # def concat_whisper_feat(self, audio_feature, input_ids, T, task):
-    #     batch_size = len(T)
-    #     for i in range(batch_size):
-    #         if task[i] not in ["TTS"]:
-    #             for jth_code in range(7): # first 7 arrays of inputs are audio codes
-    #                 input_ids[jth_code][i, 1:T[i]+1, :] = audio_feature[i][: T[i]].clone()
-    #     return input_ids
-
-    def replace_with_whisper_feature(self, audio_features, input_embeds, audio_lengths, use_audio_indices):
-        # B, T, num_codebook, H = input_embeds.shape
-        # import pdb; pdb.set_trace()
+    def replace_with_whisper_feature(self, audio_features, inputs_embeds, audio_lengths, use_audio_indices):
         for idx, audio, audio_leng in zip(use_audio_indices, audio_features, audio_lengths):
-            # for jth_code in range(1, num_codebook):
-            input_embeds[idx,1:audio_leng+1,:-1] = audio[:audio_leng,None,:] # shift 1 for BOA
-        return input_embeds
+            inputs_embeds[idx,1:audio_leng+1,:-1] = audio[:audio_leng,None,:] # shift 1 for BOA
+        return inputs_embeds
 
     def forward(
         self,
@@ -75,23 +64,16 @@ class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
         output_logits_attention_mask: Optional[torch.BoolTensor] = None,
         return_dict: Optional[bool] = None,
     ) -> Union[Tuple, CausalLMOutputWithPast]:
-        # num_codebook = len(input_ids)
-        
-        batch_size, T, num_codebook = input_ids.shape
-        audio_num_codebook = num_codebook - 1
 
-        if self.config.tokenizer_model_max_length < T:
-            raise ValueError(
-                f"Cannot forward sequence of length {T}, max seq length is only {self.config.tokenizer_model_max_length}."
-            )
-
+        audio_num_codebook = self.config.mm_audio_num_codebook
         inputs_embeds = self.model.embed_tokens(input_ids) # B x T x L x H
 
-        audio_features = self.model.audio_encoder(audios).last_hidden_state # B x 80 x 3000 => B x T x 1024
-        audio_features = self.model.audio_mm_projector(audio_features)
-        inputs_embeds = self.replace_with_whisper_feature(
-            audio_features, inputs_embeds, audio_lengths, use_audio_indices
-        )
+        if audios.numel() > 0: # if contains asr task in batch
+            audio_features = self.model.audio_encoder(audios).last_hidden_state # B x 80 x 3000 => B x T x 1024
+            audio_features = self.model.audio_mm_projector(audio_features)
+            inputs_embeds = self.replace_with_whisper_feature(
+                audio_features, inputs_embeds, audio_lengths, use_audio_indices
+            )
 
         inputs_embeds = torch.sum(inputs_embeds, dim=2) / len(inputs_embeds) # B x T x L x H => B x T x H
 
@@ -113,7 +95,7 @@ class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
         text_vocab_size_padded = self.config.text_vocab_size_padded
         audio_vocab_size_padded = self.config.audio_vocab_size_padded
 
-        hidden_states = outputs[0]
+        hidden_states = outputs.last_hidden_state
 
         logits = self.lm_head(hidden_states)
         

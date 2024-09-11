@@ -114,8 +114,10 @@ class ASRTTSDataset(Dataset):
         self.padded_vocab_size = data_args.padded_vocab_size
         self.padded_audio_vocab_size = data_args.padded_audio_vocab_size
 
+        # "EOT": 151936, "PAD_T": 151937, "BOT": 151938, "ANS_T": 151939, "TTS": 151940
         for tk, idx in data_args.text_additional_tokens.items():
             setattr(self, tk, idx)
+        # { "EOA": 4096, "PAD_A": 4097, "BOA": 4098, "ANS_A": 4099, "ASR": 4100 } * 4160 * i + 152000
         for tk, idx in data_args.audio_additional_tokens.items():
             setattr(self, tk, idx)
 
@@ -174,8 +176,7 @@ class ASRTTSDataset(Dataset):
                 self.audio_num_codebook, # 7 layers
                 codec_length_padded
             ], dtype=torch.long).fill_(self.PAD_A)
-            
-            # codec_by_layer_padded[:, -1] = self.EOA
+
             for i in range(self.audio_num_codebook):
                 num_audio_pad_right = i + 1
                 num_audio_pad_left = self.audio_num_codebook - num_audio_pad_right
@@ -190,11 +191,10 @@ class ASRTTSDataset(Dataset):
                 f"is not enough to cover texts of length {text_length}"
             num_text_pad = codec_length_padded - text_length
             text_padded = torch.cat([text, torch.zeros(num_text_pad, dtype=torch.long).fill_(self.PAD_T)]).unsqueeze(0) # 1 x T/7
-            # output_attention_mask[-1] = text_padded != self.PAD_T
+
             output = torch.cat([codec_by_layer_padded, text_padded], dim=0) # 8 x T/7
             outputs.append(output) # [8 x T / 7]
             output_lengths.append(output.shape[-1])
-
 
         return outputs, output_lengths
 
@@ -255,13 +255,15 @@ class ASRTTSDataset(Dataset):
         inputs, input_lengths = self.extract_input(batch)
         outputs, output_lengths = self.extract_output(batch)
         audio_lengths = torch.LongTensor([item["audio_length"] for item in batch if item["task"] == "ASR"])
-        audios = torch.cat([item["audio"] for item in batch if item["task"] == "ASR"]) # B' x 80 x 3000
         
-        # audios, _ = self.collate_sequence(audios, max(audio_lengths), pad=0.0) # B x T x 80
-        # tasks = [item["task"] for item in batch]
-        # use_audio_input = torch.BoolTensor([item["task"] == "ASR" for item in batch])
+        audios, use_audio_indices = None, None
+        if len(audio_lengths) > 0:
+            audios = torch.cat([item["audio"] for item in batch if item["task"] == "ASR"]) # B' x 80 x 3000
+        else:
+
+            audios = batch[0]["audio"].new(0,*batch[0]["audio"].shape[1:])
         use_audio_indices = torch.LongTensor([i for i, item in enumerate(batch) if item["task"] == "ASR"])
-        
+
         input_ids, lengs = [], []
         
         for inp, inp_leng, outp, outp_leng in zip(inputs, input_lengths, outputs, output_lengths):
@@ -271,17 +273,12 @@ class ASRTTSDataset(Dataset):
         input_ids, attention_mask = self.collate_sequence(
             input_ids, max(lengs), pad=0
         )
-        # import pdb; pdb.set_trace()
-        # for i, att_mask in enumerate(attention_mask):
-        #     input_ids[i,:,-1][att_mask[:,-1]] = self.PAD_T
-
 
         output_labels_attention_mask = torch.zeros(input_ids.shape, dtype=bool)
         output_logits_attention_mask = torch.zeros(input_ids.shape, dtype=bool)
         for i, (inp_leng, outp_leng) in enumerate(zip(input_lengths, output_lengths)):
             output_labels_attention_mask[i, inp_leng:inp_leng+outp_leng] = True
             output_logits_attention_mask[i, inp_leng-1:inp_leng+outp_leng-1] = True
-             
 
         collated = {
             "input_ids": input_ids, 

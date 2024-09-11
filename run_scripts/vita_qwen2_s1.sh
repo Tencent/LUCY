@@ -6,10 +6,8 @@ ME=${ME%.*}
 TIMESTAMP=$(date '+%m%d%y-%H%M%S')
 
 OUPTUT_DIR=${WORK_DIR}/outputs/${ME}-${TIMESTAMP}
-# CACHE_DIR=/data/workspace/.cache
 CACHE_DIR=/mnt/data/hetinggao/models
-# mkdir -p $OUPTUT_DIR
-MANIFEST_DIR="/mnt/data/hetinggao/manifest/sub100"
+MANIFEST_DIR="/mnt/data/hetinggao/manifest"
 # MANIFEST_DIR="/data/workspace/manifest/sub100"
 
 AUDIO_MANIFEST="${MANIFEST_DIR}/train.tsv"
@@ -25,16 +23,16 @@ python vita/scripts/train_s1.py \
     --model_name_or_path /mnt/data/hetinggao/models/Qwen2-1.5B \
     --audio_encoder /mnt/data/hetinggao/models/whisper-medium \
     --freeze_audio_encoder True \
-    --per_device_train_batch_size 16 \
-    --num_train_epochs 5 \
+    --per_device_train_batch_size 32 \
+    --num_train_epochs 50 \
     --save_strategy "steps" \
-    --save_steps 10 \
-    --save_total_limit 2 \
+    --save_steps 1000 \
+    --save_total_limit 10 \
     --eval_strategy "no" \
     --learning_rate 5e-4 \
     --weight_decay 0. \
     --warmup_ratio 0.03 \
-    --logging_steps 10 \
+    --logging_steps 50 \
     --lr_scheduler_type "cosine" \
     --gradient_checkpointing True \
     --bf16 True \
