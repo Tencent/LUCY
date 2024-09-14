@@ -11,11 +11,6 @@ from vita.scripts.trainer_s1 import VITAS1Trainer, get_mm_adapter_state_maybe_ze
 
 local_rank = None
 
-text_vocabsize = 151936
-text_specialtokens = 64
-audio_vocabsize = 4096
-audio_specialtokens = 64
-
 @dataclass
 class ModelArguments:
     model_name_or_path: Optional[str] = field(default="mistralai/Mixtral-8x7B-v0.1")
@@ -32,8 +27,8 @@ class ModelArguments:
     audio_special_tokens: Optional[int] = field(default=64)
     audio_projector_hidden_size: Optional[int] = field(default=7168)
     audio_num_codebook: Optional[int] = field(default=7)
-    text_additional: Optional[List[str]] = field(default_factory=lambda: list(["EOT", "PAD_T", "BOT", "ANS_T", "TTS"]))
-    audio_additional: Optional[List[str]] = field(default_factory=lambda: list(["EOT", "PAD_T", "BOT", "ANS_T", "TTS"]))
+    text_additional: Optional[List[str]] = field(default_factory=lambda: ["EOT", "PAD_T", "BOT", "ANS_T", "TTS"])
+    audio_additional: Optional[List[str]] = field(default_factory=lambda: ["EOT", "PAD_T", "BOT", "ANS_T", "TTS"])
     cache_dir: Optional[str] = field(default=None)
     model_max_length: int = field(
         default=32768,
@@ -125,7 +120,7 @@ def train():
             )
         )
     
-    text_tokenizer = transformers.AutoTokenizer.from_pretrained(
+    text_tokenizer = AutoTokenizer.from_pretrained(
         model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
         model_max_length=model_args.model_max_length,
@@ -140,7 +135,7 @@ def train():
             model_args.model_name_or_path,
             cache_dir=model_args.cache_dir,
             torch_dtype=torch_dtype,
-            attn_implementation="sdpa", #"flash_attention_2",
+            attn_implementation="flash_attention_2", # "sdpa", # 
             **bnb_model_from_pretrained_args,
         )
     else:
@@ -158,8 +153,6 @@ def train():
     audio_encoder.to(dtype=torch_dtype, device=training_args.device)
     if model_args.freeze_audio_encoder:
         audio_encoder.requires_grad_(False)
-
-    # data_args.audio_processor = audio_encoder.audio_processor
 
     model.config.tokenizer_padding_side = text_tokenizer.padding_side
     model.config.tokenizer_model_max_length = text_tokenizer.model_max_length
@@ -200,6 +193,9 @@ def train():
         cpu_state_dict = {key: value.cpu() for key, value in state_dict.items()}
         del state_dict
         trainer._save(training_args.output_dir, state_dict=cpu_state_dict)  # noqa
+
+
+
 
 
 if __name__ == "__main__":

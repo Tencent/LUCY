@@ -1,1 +1,1 @@
-from .language_model import VITAQwen2ForCausalLM
+from .language_model import VITAQwen2ForCausalLM, VITAQwen2Config

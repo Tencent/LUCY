@@ -6,20 +6,8 @@ import torch.nn.functional as F
 
 from .multimodal_encoder.builder import build_audio_encoder
 from .multimodal_projector.builder import build_audio_projector
+from .extended_embedding.builder import build_extended_embedding
 
-class PartiallyFrozenEmbedding(nn.Module):
-    def __init__(self, frozen, unfrozen):
-        super().__init__()
-        self.weight_frozen = frozen
-        self.weight_unfrozen = unfrozen
-        
-    @property
-    def weight(self):
-        return torch.cat([self.weight_frozen, self.weight_unfrozen])
-
-    def forward(self, idx):
-        # weight = torch.cat([self.weight_frozen, self.weight_unfrozen])
-        return F.embedding(idx, self.weight)
 
 
 class VITAMetaModel:
@@ -28,6 +16,10 @@ class VITAMetaModel:
 
         if hasattr(config, "mm_audio_encoder"):
             self.audio_encoder = build_audio_encoder(config)
+            self.audio_mm_projector = build_audio_projector(self.config)
+        
+        if hasattr(config, "total_vocab_size"):
+            self.embed_tokens = build_extended_embedding(self.config)
 
     def get_audio_encoder(self):
         audio_encoder = getattr(self, "audio_encoder", None)
@@ -61,16 +53,13 @@ class VITAMetaModel:
         
         setattr(self.config, "text_vocab_size_padded", model_args.text_vocab_size+model_args.text_special_tokens)
         setattr(self.config, "audio_vocab_size_padded", model_args.audio_vocab_size+model_args.audio_special_tokens)
-        
-        extended_embed = nn.Parameter(torch.zeros(total_vocab_size - model_args.text_vocab_size, model_args.model_hidden_size))
-        extended_embed.data.normal_(mean=0.0, std=std)
-        original_embed = nn.Parameter(self.embed_tokens.weight.data.clone()).requires_grad_(False)
-        extended_embed_tokens = PartiallyFrozenEmbedding(
-            original_embed, extended_embed
-        )
-        assert extended_embed_tokens.weight.shape[0] == self.config.total_vocab_size
+        setattr(self.config, "vocab_size", total_vocab_size)
+        setattr(self.config, "tie_word_embeddings", False)
+
+        extended_embed_tokens = build_extended_embedding(self.config, original_weight=self.embed_tokens.weight.data)
         del self.embed_tokens
         self.embed_tokens = extended_embed_tokens
+        
         
 
 

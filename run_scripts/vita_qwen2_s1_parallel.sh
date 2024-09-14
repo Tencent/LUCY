@@ -5,7 +5,8 @@ ME=$(basename "$0")
 ME=${ME%.*}
 TIMESTAMP=$(date '+%m%d%y-%H%M%S')
 
-OUPTUT_DIR=${WORK_DIR}/outputs/${ME}-${TIMESTAMP}
+OUTPUT_DIR=${WORK_DIR}/outputs/${ME}-${TIMESTAMP}
+OUTPUT_DIR=outputs/vita_qwen2_s1_parallel-091324-121440
 CACHE_DIR=/mnt/data/hetinggao/models
 MANIFEST_DIR="/mnt/data/hetinggao/manifest"
 # MANIFEST_DIR="/data/workspace/manifest/sub100"
@@ -17,8 +18,10 @@ CODEC_FILE="${MANIFEST_DIR}/train.snac"
 MODEL_NAME_OR_PATH="Qwen/Qwen2-1.5B"
 AUDIO_ENCODER="openai/whisper-medium"
 
+unset CUDA_VISIBLE_DEVICES
 export PYTHONPATH=$WORK_DIR
-python vita/scripts/train_s1.py \
+deepspeed --include localhost:0,1,2,3,4,5,6,7 vita/scripts/train_s1.py \
+    --deepspeed config/zero2.json\
     --model_type "qwen2" \
     --model_name_or_path /mnt/data/hetinggao/models/Qwen2-1.5B \
     --audio_encoder /mnt/data/hetinggao/models/whisper-medium \
@@ -50,9 +53,9 @@ python vita/scripts/train_s1.py \
     --audio_manifest ${AUDIO_MANIFEST} \
     --transcript_file ${TRANS_FILE} \
     --codec_file ${CODEC_FILE} \
-    --output_dir ${OUPTUT_DIR} \
+    --output_dir ${OUTPUT_DIR} \
     --sample_rate 16000 \
     --audio_feature_rate 50 \
     --dataloader_num_workers 4 \
     --remove_unused_columns False \
-    --tasks "ASR" \
+    --tasks "ASR"

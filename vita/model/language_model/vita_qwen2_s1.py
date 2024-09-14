@@ -1,20 +1,16 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+from dataclasses import dataclass
 from typing import Optional, List, Union, Tuple
+
 from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
-    MixtralConfig,
-    MixtralForCausalLM,
-    MixtralModel,
     Qwen2Config,
     Qwen2Model,
     Qwen2ForCausalLM,
 )
-from transformers import PreTrainedModel, PretrainedConfig
-from transformers.modeling_outputs import CausalLMOutputWithPast, MoeCausalLMOutputWithPast
-from transformers.utils import logging, is_torchdynamo_compiling
+from transformers.modeling_outputs import CausalLMOutputWithPast
 from vita.model.vita_arch import VITAMetaModel, VITAMetaForCausalLM
 
 
@@ -25,8 +21,14 @@ class VITAQwen2Config(Qwen2Config):
 class VITAQwen2Model(VITAMetaModel, Qwen2Model):
     config_class = VITAQwen2Config
 
-    def __init__(self, config: MixtralConfig):
+    def __init__(self, config: Qwen2Config):
         super(VITAQwen2Model, self).__init__(config)
+
+
+@dataclass
+class VITACausalLMOutputWithPast(CausalLMOutputWithPast):
+    loss_text: Optional[torch.Tensor] = None
+    loss_audios: Optional[torch.Tensor] = None
 
 
 class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
@@ -51,8 +53,8 @@ class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
         self,
         input_ids: torch.LongTensor = None, # B x T x L 
         attention_mask: Optional[torch.Tensor] = None, # B x T
-        audio_lengths: Optional[torch.LongTensor] = None, # B x T x 80
-        position_ids: Optional[torch.LongTensor] = None, # B x T x 8
+        audio_lengths: Optional[torch.LongTensor] = None, # B
+        position_ids: Optional[torch.LongTensor] = None,
         past_key_values: Optional[List[torch.FloatTensor]] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
         use_cache: Optional[bool] = None,
@@ -68,14 +70,14 @@ class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
         audio_num_codebook = self.config.mm_audio_num_codebook
         inputs_embeds = self.model.embed_tokens(input_ids) # B x T x L x H
 
-        if audios.numel() > 0: # if contains asr task in batch
+        if audios is not None and audios.numel() > 0: # if contains asr task in batch
             audio_features = self.model.audio_encoder(audios).last_hidden_state # B x 80 x 3000 => B x T x 1024
             audio_features = self.model.audio_mm_projector(audio_features)
             inputs_embeds = self.replace_with_whisper_feature(
                 audio_features, inputs_embeds, audio_lengths, use_audio_indices
             )
 
-        inputs_embeds = torch.sum(inputs_embeds, dim=2) / len(inputs_embeds) # B x T x L x H => B x T x H
+        inputs_embeds = torch.mean(inputs_embeds, dim=2) # B x T x L x H => B x T x H
 
         if getattr(self.config, "scale_embeddings", False):
             x = x * (self.config.n_embd**0.5)
@@ -99,28 +101,35 @@ class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
 
         logits = self.lm_head(hidden_states)
         
-        logits_mask_text = output_logits_attention_mask[...,-1]
-        labels_mask_text = output_labels_attention_mask[...,-1]
-        logits_text = logits[logits_mask_text][...,:text_vocab_size_padded]
-        labels_text = input_ids[...,-1][labels_mask_text]
+        loss, loss_text, loss_audios = None, None, None
+        if output_labels_attention_mask is not None:
+            logits_mask_text = output_logits_attention_mask[...,-1]
+            labels_mask_text = output_labels_attention_mask[...,-1]
+            logits_text = logits[logits_mask_text][...,:text_vocab_size_padded]
+            labels_text = input_ids[...,-1][labels_mask_text]
 
-        loss_audios = []
-        loss_text = self.compute_loss(logits_text, labels_text)
-        for i in range(audio_num_codebook):
-            code_start = text_vocab_size_padded+audio_vocab_size_padded * i
-            code_end = text_vocab_size_padded+audio_vocab_size_padded * (i + 1)
-            logits_mask_audio = output_logits_attention_mask[...,i]
-            labels_mask_audio = output_labels_attention_mask[...,i]
-            logits_audio_i = logits[logits_mask_audio][...,code_start:code_end]
+            loss_audios = []
+            loss_text = self.compute_loss(logits_text, labels_text)
+            for i in range(audio_num_codebook):
+                code_start = text_vocab_size_padded+audio_vocab_size_padded * i
+                code_end = text_vocab_size_padded+audio_vocab_size_padded * (i + 1)
+                logits_mask_audio = output_logits_attention_mask[...,i]
+                labels_mask_audio = output_labels_attention_mask[...,i]
+                logits_audio_i = logits[logits_mask_audio][...,code_start:code_end]
 
-            labels_audio_i = self.codec_layer_shift_reserve(input_ids[...,i][labels_mask_audio], i)
+                labels_audio_i = self.codec_layer_shift_reserve(input_ids[...,i][labels_mask_audio], i)
 
-            loss_audio_i = self.compute_loss(logits_audio_i, labels_audio_i)
-            loss_audios.append(loss_audio_i)
+                loss_audio_i = self.compute_loss(logits_audio_i, labels_audio_i)
+                loss_audios.append(loss_audio_i)
 
-        loss = loss_text + sum(loss_audios)
-        return CausalLMOutputWithPast(
+            loss = loss_text + sum(loss_audios)
+            loss_audios = torch.stack(loss_audios)
+
+        return VITACausalLMOutputWithPast(
             loss=loss,
+            loss_text=loss_text,
+            loss_audios=loss_audios,
+            logits=logits,
             past_key_values=outputs.past_key_values,
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,

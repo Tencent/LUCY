@@ -169,7 +169,6 @@ class VITAS1Trainer(Trainer):
             return super().create_optimizer()
 
         opt_model = self.model
-
         if self.optimizer is None:
             decay_parameters = get_parameter_names(opt_model, ALL_LAYERNORM_LAYERS)
             decay_parameters = [name for name in decay_parameters if "bias" not in name]
@@ -250,7 +249,6 @@ class VITAS1Trainer(Trainer):
                         "weight_decay": 0.0,
                     },
                 ]
-
             optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(self.args)
 
             self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
@@ -307,3 +305,19 @@ class VITAS1Trainer(Trainer):
     ) -> torch.Tensor:
         tr_loss_step = super().training_step(model, inputs)
         return tr_loss_step
+    
+    def compute_loss(self, model, inputs, return_outputs=False):
+        loss, output = super().compute_loss(model, inputs, return_outputs=True)
+        if self.state.global_step % self.state.logging_steps == 0:
+            logs = {
+                "loss": round(loss.item(), 4), 
+                "loss_text": round(output["loss_text"].item(), 4),
+            }
+            for i, audio_loss in enumerate(output["loss_audios"]):
+                logs[f"audio_loss_{i}"] = round(audio_loss.item(), 4)
+            self.log(logs)
+            
+        # print(self.control.should_log)
+        # import pdb; pdb.set_trace()
+        
+        return (loss, output) if return_outputs else loss
