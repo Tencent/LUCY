@@ -38,15 +38,31 @@ def sync_data_args(model_args, data_args):
     setattr(data_args, "padded_audio_vocab_size", model_args.audio_vocab_size + model_args.audio_special_tokens)
 
 # Modified from https://github.com/facebookresearch/fairseq/blob/main/fairseq/data/audio/hubert_dataset.py
-def load_audio(manifest_path, transcript_path, max_keep, min_keep):
+def load_audio(manifest_path, transcript_path, max_keep, min_keep, tolerance=0):
     n_long, n_short = 0, 0
-    names, inds, sizes, trans = [], [], [], []
+    names, inds, sizes, audio_frames, trans, starts, ends = [], [], [], [], [], [], []
+    n_mismatch = 0
     with open(manifest_path) as f, open(transcript_path) as ftrans:
         root = f.readline().strip()
         for ind, (line, line_trans) in enumerate(zip(f, ftrans)):
             items = line.strip().split("\t")
-            assert len(items) == 2, line
-            sz = int(items[1])
+            assert len(items) == 2 or len(items) == 4, line
+            start, end = 0, None
+            if len(items) == 4:
+                name, frames, start, end = items
+                start, end, frames = int(start), int(end), int(frames)
+                if end > frames:
+                    assert end - frames < tolerance, f"length difference of {name} {end} - {frames} = {end-frames} > tolerance of {tolerance} frames"
+                    logger.info(f"set audio end from {end} to {frames} for {name} with difference of {end-frames}")
+                    n_mismatch += 1
+                end = min(end, frames)
+                sz = end - start
+            elif len(items) == 2:
+                name, frames = items
+                frames = int(frames)
+                sz = int(frames)
+            else:
+                raise ValueError(f"Case of {len(items)} items are not implemented")
             if min_keep is not None and sz < min_keep:
                 n_short += 1
             elif max_keep is not None and sz > max_keep:
@@ -55,16 +71,20 @@ def load_audio(manifest_path, transcript_path, max_keep, min_keep):
                 names.append(items[0])
                 inds.append(ind)
                 sizes.append(sz)
+                audio_frames.append(frames)
                 trans.append(line_trans.strip())
+                starts.append(start)
+                ends.append(end)
     tot = ind + 1
-    logger.info(
+    logger.warning(
         (
             f"max_keep={max_keep}, min_keep={min_keep}, "
             f"loaded {len(names)}, skipped {n_short} short and {n_long} long, "
-            f"longest-loaded={max(sizes)}, shortest-loaded={min(sizes)}"
+            f"longest-loaded={max(sizes)}, shortest-loaded={min(sizes)}, "
+            f"find {n_mismatch} mismatch utterence in {len(inds)} / {tot} samples"
         )
     )
-    return root, names, inds, tot, sizes, trans
+    return root, names, inds, tot, sizes, audio_frames, trans, starts, ends
 
 # https://github.com/facebookresearch/fairseq/blob/main/fairseq/data/audio/hubert_dataset.py
 def load_label_offset(label_path, inds, tot):
@@ -90,16 +110,28 @@ class ASRTTSDataset(Dataset):
             self.root_dir, 
             self.audio_paths, 
             self.ixs, 
-            self.num_samples, 
+            self.manifest_total, 
             self.lengths,
-            self.transcripts
+            self.audio_frames,
+            self.transcripts,
+            self.starts,
+            self.ends
         ) = load_audio(
             self.manifest, self.transcripts_file, 
             data_args.max_keep_sample_size, 
-            data_args.min_keep_sample_size
+            data_args.min_keep_sample_size,
+            tolerance=int(0.2 * data_args.sample_rate)
         )
+        self.num_samples = len(self.ixs)
+        assert self.num_samples == len(self.audio_paths)
+        assert self.num_samples == len(self.lengths)
+        assert self.num_samples == len(self.audio_frames)
+        assert self.num_samples == len(self.transcripts)
+        assert self.num_samples == len(self.starts)
+        assert self.num_samples == len(self.ends)
 
-        self.codec_offsets_list = load_label_offset(self.codec_file, self.ixs, self.num_samples) 
+        self.codec_offsets_list = load_label_offset(self.codec_file, self.ixs, self.manifest_total) 
+        assert self.num_samples == len(self.codec_offsets_list)
 
         self.ix2ix = list(range(self.num_samples))
         if data_args.shuffle:
@@ -144,17 +176,20 @@ class ASRTTSDataset(Dataset):
         audio_length = self.lengths[ix]
         transcript = self.transcripts[ix]
         codec = self.get_codec(ix)
-        wav, sr = sf.read(audio_path)
+        start, end = self.starts[ix], self.ends[ix]
+        wav, sr = sf.read(audio_path, start=start, stop=end)
+
         if wav.ndim == 2:
             wav = wav.mean(-1)
         assert sr == self.sample_rate, f"Audio sampling rate {sr} != {self.sample_rate}"
-        assert len(wav) == audio_length, f"Audio length {len(wav)} != {audio_length} of {audio_path}"
+        audio_frame = self.audio_frames[ix]
+        assert len(wav) == audio_length, f"Audio length {len(wav)} != {audio_length} of {audio_path} with start {start} and end {end}"
+        assert end is None or (end - start == audio_length), f"Audio length {audio_length} != end {end} - start {start}" 
         audio = self.audio_processor(wav, sampling_rate=sr, return_tensors="pt").input_features 
         audio_length = int(audio_length / self.sample_rate * self.audio_feature_rate) + 1
 
         result = self.text_tokenizer([transcript], return_tensors="pt")
         text = result.input_ids.squeeze(0)
-
         data_dict = {
             "audio": audio,
             "audio_length": audio_length,
@@ -301,8 +336,9 @@ class ASRTTSDataset(Dataset):
         output_logits_attention_mask = torch.zeros(input_ids.shape, dtype=bool)
         for bi, (inp_leng, outp_lengs) in enumerate(zip(input_lengths, output_lengths)):
             for li, outp_leng in enumerate(outp_lengs):
-                output_labels_attention_mask[bi, inp_leng:inp_leng+outp_leng, li] = True
-                output_logits_attention_mask[bi, inp_leng-1:inp_leng+outp_leng-1, li] = True
+                layer_shift = (li + 1) % (self.audio_num_codebook + 1) # pad li+1 for audio layer li=0,1,...,6 and pad 0 for text layer li=7
+                output_labels_attention_mask[bi, inp_leng+layer_shift:inp_leng+outp_leng, li] = True
+                output_logits_attention_mask[bi, inp_leng+layer_shift-1:inp_leng+outp_leng-1, li] = True
 
         collated = {
             "input_ids": input_ids, 

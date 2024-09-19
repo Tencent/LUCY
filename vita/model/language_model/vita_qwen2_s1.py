@@ -116,7 +116,6 @@ class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
                 logits_mask_audio = output_logits_attention_mask[...,i]
                 labels_mask_audio = output_labels_attention_mask[...,i]
                 logits_audio_i = logits[logits_mask_audio][...,code_start:code_end]
-
                 labels_audio_i = self.codec_layer_shift_reserve(input_ids[...,i][labels_mask_audio], i)
 
                 loss_audio_i = self.compute_loss(logits_audio_i, labels_audio_i)

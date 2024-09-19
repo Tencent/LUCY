@@ -7,7 +7,7 @@ TIMESTAMP=$(date '+%m%d%y-%H%M%S')
 
 OUTPUT_DIR=${WORK_DIR}/outputs/${ME}-${TIMESTAMP}
 CACHE_DIR=/mnt/data/hetinggao/models
-MANIFEST_DIR="/mnt/data/hetinggao/manifest"
+MANIFEST_DIR="/mnt/data/hetinggao/manifest/LibriSpeech"
 # MANIFEST_DIR="/data/workspace/manifest/sub100"
 
 AUDIO_MANIFEST="${MANIFEST_DIR}/train.tsv"
@@ -17,8 +17,10 @@ CODEC_FILE="${MANIFEST_DIR}/train.snac"
 MODEL_NAME_OR_PATH="Qwen/Qwen2-1.5B"
 AUDIO_ENCODER="openai/whisper-medium"
 
+unset CUDA_VISIBLE_DEVICES
 export PYTHONPATH=$WORK_DIR
-python vita/scripts/train_s1.py \
+deepspeed --include localhost:0,1,2,3 vita/scripts/train_s1.py \
+    --deepspeed config/zero2.json\
     --model_type "qwen2" \
     --model_name_or_path /mnt/data/hetinggao/models/Qwen2-1.5B \
     --audio_encoder /mnt/data/hetinggao/models/whisper-medium \
@@ -53,6 +55,9 @@ python vita/scripts/train_s1.py \
     --output_dir ${OUTPUT_DIR} \
     --sample_rate 16000 \
     --audio_feature_rate 50 \
-    --dataloader_num_workers 4 \
+    --dataloader_num_workers 5 \
     --remove_unused_columns False \
     --tasks "ASR" \
+    --max_keep_sample_size $((30*16000)) \
+	--tune_text_embed True \
+	--tie_word_embeddings True \

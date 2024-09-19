@@ -13,12 +13,11 @@ local_rank = None
 
 @dataclass
 class ModelArguments:
-    model_name_or_path: Optional[str] = field(default="mistralai/Mixtral-8x7B-v0.1")
+    model_type: Optional[str] = field(default=None)
+    model_name_or_path: Optional[str] = field(default="/mnt/data/hetinggao/models/Qwen2-1.5B")
     audio_encoder: Optional[str] = field(default="openai/whisper-medium")
     model_hidden_size: Optional[int] = field(default=1536)
     freeze_backbone: Optional[bool] = field(default=True)
-    model_type: Optional[str] = field(default=None)
-    audio_encoder: Optional[str] = field(default=None)
     freeze_audio_encoder: Optional[bool] = field(default=True)
     audio_encoder_hidden_size: Optional[int] = field(default=1024)
     text_vocab_size: Optional[int] = field(default=151936)
@@ -36,6 +35,8 @@ class ModelArguments:
             "help": "Maximum sequence length. Sequences will be right padded (and possibly truncated)."
         },
     )
+    tune_text_embed: Optional[bool] = field(default=False)
+    tie_word_embeddings: Optional[bool] = field(default=False)
 
 @dataclass
 class TrainingArguments(transformers.TrainingArguments):
@@ -147,7 +148,7 @@ def train():
     # model.get_model().initialize_vision_modules(model_args=model_args)
     model.get_model().initialize_audio_modules(model_args=model_args)
     model.get_model().initialize_extended_embedding(model_args=model_args)
-    model.initialized_lm_head()
+    model.initialized_lm_head(model_args=model_args)
 
     audio_encoder = model.get_audio_encoder()
     audio_encoder.to(dtype=torch_dtype, device=training_args.device)

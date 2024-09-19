@@ -8,6 +8,8 @@ from .multimodal_encoder.builder import build_audio_encoder
 from .multimodal_projector.builder import build_audio_projector
 from .extended_embedding.builder import build_extended_embedding
 
+from transformers import logging
+logger = logging.get_logger(__name__)
 
 
 class VITAMetaModel:
@@ -54,8 +56,7 @@ class VITAMetaModel:
         setattr(self.config, "text_vocab_size_padded", model_args.text_vocab_size+model_args.text_special_tokens)
         setattr(self.config, "audio_vocab_size_padded", model_args.audio_vocab_size+model_args.audio_special_tokens)
         setattr(self.config, "vocab_size", total_vocab_size)
-        setattr(self.config, "tie_word_embeddings", False)
-
+        setattr(self.config, "tune_text_embed", model_args.tune_text_embed)
         extended_embed_tokens = build_extended_embedding(self.config, original_weight=self.embed_tokens.weight.data)
         del self.embed_tokens
         self.embed_tokens = extended_embed_tokens
@@ -71,5 +72,10 @@ class VITAMetaForCausalLM(ABC):
     def get_audio_encoder(self):
         return self.get_model().get_audio_encoder()
 
-    def initialized_lm_head(self):
+    def initialized_lm_head(self, model_args):
+
+        setattr(self.config, "tie_word_embeddings", model_args.tie_word_embeddings)
         self.lm_head = nn.Linear(self.config.hidden_size, self.config.total_vocab_size, bias=False)
+        if self.config.tie_word_embeddings:
+            logger.warning("Tie word embeddings and lm head together.") 
+            self.lm_head.weight = self.get_model().embed_tokens.weight
