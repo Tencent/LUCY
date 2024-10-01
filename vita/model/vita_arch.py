@@ -43,25 +43,30 @@ class VITAMetaModel:
     def initialize_extended_embedding(self, model_args):
         # extend embed_tokens with additional audio codec tokens
         std = self.config.initializer_range
+        phone_vocab_size = getattr(model_args, "phone_vocab_size", 0)
+        phone_special_tokens = getattr(model_args, "phone_special_tokens", 0)
+        
         total_vocab_size = (
             model_args.text_vocab_size + model_args.text_special_tokens + \
-            (model_args.audio_vocab_size + model_args.audio_special_tokens) * model_args.audio_num_codebook
+            (model_args.audio_vocab_size + model_args.audio_special_tokens) * model_args.audio_num_codebook + \
+            phone_vocab_size + phone_special_tokens
         )
         setattr(self.config, "total_vocab_size", total_vocab_size)
         setattr(self.config, "text_vocab_size", model_args.text_vocab_size)
         setattr(self.config, "text_special_tokens", model_args.text_special_tokens)
         setattr(self.config, "audio_vocab_size", model_args.audio_vocab_size)
-        setattr(self.config, "audio_special_tokens", model_args.audio_special_tokens)
-        
+        setattr(self.config, "audio_special_tokens", model_args.audio_special_tokens)        
         setattr(self.config, "text_vocab_size_padded", model_args.text_vocab_size+model_args.text_special_tokens)
         setattr(self.config, "audio_vocab_size_padded", model_args.audio_vocab_size+model_args.audio_special_tokens)
         setattr(self.config, "vocab_size", total_vocab_size)
         setattr(self.config, "tune_text_embed", model_args.tune_text_embed)
+        if phone_vocab_size > 0 and phone_special_tokens > 0:
+            setattr(self.config, "phone_vocab_size", phone_vocab_size)
+            setattr(self.config, "phone_special_tokens", phone_special_tokens)
+            setattr(self.config, "phone_vocab_size_padded", phone_vocab_size+phone_special_tokens)
         extended_embed_tokens = build_extended_embedding(self.config, original_weight=self.embed_tokens.weight.data)
         del self.embed_tokens
         self.embed_tokens = extended_embed_tokens
-        
-        
 
 
 class VITAMetaForCausalLM(ABC):
@@ -72,10 +77,14 @@ class VITAMetaForCausalLM(ABC):
     def get_audio_encoder(self):
         return self.get_model().get_audio_encoder()
 
-    def initialized_lm_head(self, model_args):
+    def initialize_lm_head(self, model_args):
 
         setattr(self.config, "tie_word_embeddings", model_args.tie_word_embeddings)
         self.lm_head = nn.Linear(self.config.hidden_size, self.config.total_vocab_size, bias=False)
         if self.config.tie_word_embeddings:
             logger.warning("Tie word embeddings and lm head together.") 
             self.lm_head.weight = self.get_model().embed_tokens.weight
+
+    def initialize_additional_configs(self, model_args):
+        loss_reduction = getattr(model_args, "loss_reduction", "sum")
+        setattr(self.config, "loss_reduction", loss_reduction)

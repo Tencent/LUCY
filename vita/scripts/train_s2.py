@@ -5,9 +5,9 @@ import transformers
 from typing import Optional, List
 from dataclasses import dataclass, field
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from vita.util import set_random_seed, rank0_print, s1_data_util 
+from vita.util import set_random_seed, rank0_print, s2_data_util 
 from vita.model import VITAQwen2ForCausalLM
-from vita.scripts.trainer_s1 import VITAS1Trainer, get_mm_adapter_state_maybe_zero_3
+from vita.scripts.trainer import VITATrainer, get_mm_adapter_state_maybe_zero_3
 
 local_rank = None
 
@@ -19,6 +19,9 @@ class ModelArguments:
     model_hidden_size: Optional[int] = field(default=1536)
     freeze_backbone: Optional[bool] = field(default=True)
     freeze_audio_encoder: Optional[bool] = field(default=True)
+    freeze_tts_adapter: Optional[bool] = field(default=True)
+    freeze_audio_encoder_adapter: Optional[bool] = field(default=True)
+    freeze_embed_tokens: Optional[bool] = field(default=True)
     audio_encoder_hidden_size: Optional[int] = field(default=1024)
     text_vocab_size: Optional[int] = field(default=151936)
     text_special_tokens: Optional[int] = field(default=64)
@@ -41,6 +44,7 @@ class ModelArguments:
 
 @dataclass
 class TrainingArguments(transformers.TrainingArguments):
+    # cache_dir: Optional[str] = field(default=None)
     optim: str = field(default="adamw_torch")
     bits: int = field(default=16, metadata={"help": "How many bits to use."})
     double_quant: bool = field(
@@ -81,10 +85,10 @@ def safe_save_model_for_hf_trainer(trainer: transformers.Trainer, output_dir: st
 
 def train():
     global local_rank
-    parser = transformers.HfArgumentParser((ModelArguments, s1_data_util.DataArguments, TrainingArguments))
+    parser = transformers.HfArgumentParser((ModelArguments, s2_data_util.DataArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     # synchronize common arguments
-    s1_data_util.sync_data_args(model_args, data_args)
+    s2_data_util.sync_data_args(model_args, data_args)
     print(model_args)
     print(data_args)
     print(training_args)
@@ -129,8 +133,6 @@ def train():
         use_fast=True,
     )
 
-    AutoModelForCausalLM.from_pretrained(model_args.model_name_or_path, cache_dir=model_args.cache_dir)
-        # torch_dtype = torch.float16 if training_args.fp16 else torch.bfloat16
     if model_args.model_type == "qwen2":
         model = VITAQwen2ForCausalLM.from_pretrained(
             model_args.model_name_or_path,
@@ -142,20 +144,13 @@ def train():
     else:
         raise ValueError(f"Unknown model type {model_args.model_type}")
 
-    if model_args.freeze_backbone:
-        model.model.requires_grad_(False)
+    model.initialize_additional_configs(model_args)
+    model.model.requires_grad_(not model_args.freeze_backbone)
+    model.model.audio_encoder.requires_grad_(not model_args.freeze_audio_encoder)
+    model.model.embed_tokens.requires_grad_(not model_args.freeze_embed_tokens)
+    model.model.audio_mm_projector.requires_grad_(not model_args.freeze_audio_encoder_adapter)
+    model.lm_head.requires_grad_(not model_args.freeze_tts_adapter)
     
-    # model.get_model().initialize_vision_modules(model_args=model_args)
-    model.get_model().initialize_audio_modules(model_args=model_args)
-    model.get_model().initialize_extended_embedding(model_args=model_args)
-    model.initialize_lm_head(model_args=model_args)
-    model.initialize_additional_configs(model_args=model_args)
-
-    audio_encoder = model.get_audio_encoder()
-    audio_encoder.to(dtype=torch_dtype, device=training_args.device)
-    if model_args.freeze_audio_encoder:
-        audio_encoder.requires_grad_(False)
-
     model.config.tokenizer_padding_side = text_tokenizer.padding_side
     model.config.tokenizer_model_max_length = text_tokenizer.model_max_length
 
@@ -167,14 +162,15 @@ def train():
                 if hasattr(module, "weight"):
                     if training_args.bf16 and module.weight.dtype == torch.float32:
                         module = module.to(torch.bfloat16)
-    
-    data_module = s1_data_util.make_data_module(
+
+    audio_encoder = model.get_audio_encoder()
+    data_module = s2_data_util.make_data_module(
         text_tokenizer=text_tokenizer, 
         audio_processor=audio_encoder.audio_processor, 
         data_args=data_args
     )
 
-    trainer = VITAS1Trainer(model=model, tokenizer=text_tokenizer, args=training_args, **data_module)
+    trainer = VITATrainer(model=model, tokenizer=text_tokenizer, args=training_args, **data_module)
     if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
         trainer.train(resume_from_checkpoint=True)
     else:

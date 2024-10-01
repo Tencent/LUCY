@@ -152,7 +152,7 @@ class LengthGroupedSampler(Sampler):
         return iter(indices)
 
 
-class VITAS1Trainer(Trainer):
+class VITATrainer(Trainer):
     def _get_train_sampler(self) -> Optional[torch.utils.data.Sampler]:
         if self.train_dataset is None or not has_length(self.train_dataset):
             return None
@@ -292,13 +292,13 @@ class VITAS1Trainer(Trainer):
                 self.model.config.save_pretrained(output_dir)
                 torch.save(weight_to_save, os.path.join(output_dir, f"mm_projector.bin"))
         else:
-            super(VITAS1Trainer, self)._save_checkpoint(model, trial, metrics)
+            super(VITATrainer, self)._save_checkpoint(model, trial, metrics)
 
     def _save(self, output_dir: Optional[str] = None, state_dict=None):
         if getattr(self.args, "tune_mm_mlp_adapter", False):
             pass
         else:
-            super(VITAS1Trainer, self)._save(output_dir, state_dict)
+            super(VITATrainer, self)._save(output_dir, state_dict)
 
     def training_step(
         self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]
@@ -307,14 +307,25 @@ class VITAS1Trainer(Trainer):
         return tr_loss_step
     
     def compute_loss(self, model, inputs, return_outputs=False):
+        if self.control.should_evaluate:
+            inputs["use_cache"] = False
         loss, output = super().compute_loss(model, inputs, return_outputs=True)
-        if self.state.global_step % self.state.logging_steps == 0:
+
+        if self.control.should_evaluate or self.state.global_step % self.state.logging_steps == 0:
+            prefix = "eval_" if self.control.should_evaluate else ""
+            # Dirty hack, evaluation set is not shuffled, and tasks in a batch occurs consecutively. 
+            # Use the task of the first item to roughly represent the batch
+            task = output["tasks"][0] 
+            suffix = f"_{task}" if self.control.should_evaluate else ""
             logs = {
-                "loss": round(loss.item(), 4), 
-                "loss_text": round(output["loss_text"].item(), 4),
+                f"{prefix}loss": round(loss.item(), 4), 
             }
+            if self.control.should_evaluate:
+                logs[f"{prefix}loss{suffix}"] = round(loss.item(), 4)
+            if output[f"loss_text"] is not None:
+                logs[f"{prefix}loss_text{suffix}"] = round(output["loss_text"].item(), 4)
             for i, audio_loss in enumerate(output["loss_audios"]):
-                logs[f"audio_loss_{i}"] = round(audio_loss.item(), 4)
+                logs[f"{prefix}audio_loss_{i}{suffix}"] = round(audio_loss.item(), 4)
             self.log(logs)
         
         return (loss, output) if return_outputs else loss

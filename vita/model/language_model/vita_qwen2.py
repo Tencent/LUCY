@@ -29,6 +29,7 @@ class VITAQwen2Model(VITAMetaModel, Qwen2Model):
 class VITACausalLMOutputWithPast(CausalLMOutputWithPast):
     loss_text: Optional[torch.Tensor] = None
     loss_audios: Optional[torch.Tensor] = None
+    tasks: Optional[List[str]] = None
 
 
 class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
@@ -65,6 +66,7 @@ class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
         output_labels_attention_mask: Optional[torch.BoolTensor] = None,
         output_logits_attention_mask: Optional[torch.BoolTensor] = None,
         return_dict: Optional[bool] = None,
+        tasks: Optional[List[str]] = None
     ) -> Union[Tuple, CausalLMOutputWithPast]:
 
         audio_num_codebook = self.config.mm_audio_num_codebook
@@ -82,6 +84,7 @@ class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
         if getattr(self.config, "scale_embeddings", False):
             x = x * (self.config.n_embd**0.5)
 
+        
         outputs = self.model(
             input_ids=None,
             attention_mask=attention_mask,
@@ -108,16 +111,19 @@ class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
             logits_text = logits[logits_mask_text][...,:text_vocab_size_padded]
             labels_text = input_ids[...,-1][labels_mask_text]
             loss_text = self.compute_loss(logits_text, labels_text)
-
+            # import pdb; pdb.set_trace()
             loss_audios = []
             for i in range(audio_num_codebook):
+                logits_mask_audio = output_logits_attention_mask[...,i]
+                if not logits_mask_audio.any(): # no audio target skip
+                    continue
+                labels_mask_audio = output_labels_attention_mask[...,i]
+
                 code_start = text_vocab_size_padded+audio_vocab_size_padded * i
                 code_end = text_vocab_size_padded+audio_vocab_size_padded * (i + 1)
-                logits_mask_audio = output_logits_attention_mask[...,i]
-                labels_mask_audio = output_labels_attention_mask[...,i]
+
                 logits_audio_i = logits[logits_mask_audio][...,code_start:code_end]
                 labels_audio_i = self.codec_layer_shift_reverse(input_ids[...,i][labels_mask_audio], i)
-
                 loss_audio_i = self.compute_loss(logits_audio_i, labels_audio_i)
                 loss_audios.append(loss_audio_i)
 
@@ -128,8 +134,8 @@ class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
                 loss = sum(losses)
             else:
                 raise ValueError(f"{self.config.loss_reduction} not implemented")
-
-            loss_audios = torch.stack(loss_audios)
+            if len(loss_audios) > 0:
+                loss_audios = torch.stack(loss_audios)
 
         return VITACausalLMOutputWithPast(
             loss=loss,
@@ -139,6 +145,7 @@ class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
             past_key_values=outputs.past_key_values,
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
+            tasks=tasks
         )
 
     def codec_layer_shift_reverse(self, shifted_input_id, layer):
