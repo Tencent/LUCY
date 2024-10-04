@@ -249,6 +249,7 @@ class VITATrainer(Trainer):
                         "weight_decay": 0.0,
                     },
                 ]
+                # import pdb; pdb.set_trace()
             optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(self.args)
 
             self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
@@ -307,6 +308,7 @@ class VITATrainer(Trainer):
         return tr_loss_step
     
     def compute_loss(self, model, inputs, return_outputs=False):
+        
         if self.control.should_evaluate:
             inputs["use_cache"] = False
         loss, output = super().compute_loss(model, inputs, return_outputs=True)
@@ -315,7 +317,7 @@ class VITATrainer(Trainer):
             prefix = "eval_" if self.control.should_evaluate else ""
             # Dirty hack, evaluation set is not shuffled, and tasks in a batch occurs consecutively. 
             # Use the task of the first item to roughly represent the batch
-            task = output["tasks"][0] 
+            task = output["tasks"][0]
             suffix = f"_{task}" if self.control.should_evaluate else ""
             logs = {
                 f"{prefix}loss": round(loss.item(), 4), 

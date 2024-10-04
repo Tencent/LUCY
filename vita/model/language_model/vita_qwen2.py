@@ -66,7 +66,10 @@ class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
         output_labels_attention_mask: Optional[torch.BoolTensor] = None,
         output_logits_attention_mask: Optional[torch.BoolTensor] = None,
         return_dict: Optional[bool] = None,
-        tasks: Optional[List[str]] = None
+        tasks: Optional[List[str]] = None,
+        indices: Optional[torch.LongTensor] = None,
+        dids: Optional[torch.LongTensor] = None,
+        idxs: Optional[torch.LongTensor] = None,
     ) -> Union[Tuple, CausalLMOutputWithPast]:
 
         audio_num_codebook = self.config.mm_audio_num_codebook
@@ -111,7 +114,6 @@ class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
             logits_text = logits[logits_mask_text][...,:text_vocab_size_padded]
             labels_text = input_ids[...,-1][labels_mask_text]
             loss_text = self.compute_loss(logits_text, labels_text)
-            # import pdb; pdb.set_trace()
             loss_audios = []
             for i in range(audio_num_codebook):
                 logits_mask_audio = output_logits_attention_mask[...,i]
