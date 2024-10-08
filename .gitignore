@@ -5,3 +5,5 @@ outputs
 checkpoints-*
 .DS_Store
 custom
+*.swp
+*.swo
