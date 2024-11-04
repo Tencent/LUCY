@@ -381,9 +381,8 @@ class TA2TADataset(Dataset):
                         ]
                     )
                 text_padded = torch.cat([
-                    torch.LongTensor([self.BOT]),
-                    torch.LongTensor([self.PAD_T] * audio_length),
-                    torch.LongTensor([self.EOT, self.ANS_T])
+                    torch.LongTensor([self.PAD_T] * (audio_length+2)), # 1 for BOA and 1 for EOA
+                    torch.LongTensor([self.ANS_T])
                 ]).unsqueeze(0) # 8 x (audio_length+3)
                 input_length = audio_length + 3 # 1 for BOA, 1 for EOA and 1 for ASR
             elif task in self.tasks_with_text_input: # collate text only

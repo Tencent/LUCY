@@ -4,9 +4,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .multimodal_encoder.builder import build_audio_encoder
-from .multimodal_projector.builder import build_audio_projector
+from .multimodal_encoder.builder import build_audio_encoder, build_vision_tower
+from .multimodal_projector.builder import build_audio_projector, build_vision_projector
 from .extended_embedding.builder import build_extended_embedding
+from .tts_adapter.builder import build_tts_adapter
 
 from transformers import logging
 logger = logging.get_logger(__name__)
@@ -22,6 +23,17 @@ class VITAMetaModel:
         
         if hasattr(config, "total_vocab_size"):
             self.embed_tokens = build_extended_embedding(self.config)
+
+        if getattr(config, "post_tts_adapter", False):
+            self.post_tts_module = build_tts_adapter(self.config)
+            self.text_norm = self.norm
+            self.layers.extend(self.post_tts_module.adapter)
+
+        if False and hasattr(config, "mm_vision_tower"):
+            self.vision_tower = build_vision_tower(
+                config, delay_load=False
+            )
+            self.mm_projector = build_vision_projector(config)
 
     def get_audio_encoder(self):
         audio_encoder = getattr(self, "audio_encoder", None)
@@ -68,6 +80,26 @@ class VITAMetaModel:
         del self.embed_tokens
         self.embed_tokens = extended_embed_tokens
 
+    def initialize_tts_adapter(self, model_args):
+        setattr(self.config, "post_tts_adapter", model_args.post_tts_adapter)
+        if self.config.post_tts_adapter:
+            setattr(self.config, "post_tts_adapter_num_layers", model_args.post_tts_adapter_num_layers)
+            self.post_tts_module = build_tts_adapter(self.config)
+            self.text_norm = self.norm
+            self.layers.extend(self.post_tts_module.adapter)
+            #from transformers.models.qwen2.modeling_qwen2 import Qwen2DecoderLayer, Qwen2RMSNorm
+            #tts_adapter = nn.ModuleList([
+            #    Qwen2DecoderLayer(self.config, self.config.num_hidden_layers+layer_idx) \
+            #        for layer_idx in range(self.config.post_tts_adapter_num_layers)
+            #])
+            #self.layers.extend(tts_adapter)
+            #self.text_norm = self.norm
+            #tts_norm = Qwen2RMSNorm(self.config.hidden_size, eps=self.config.rms_norm_eps)
+            #self.post_tts_module = nn.ModuleDict({
+            #    "adapter": tts_adapter,
+            #    "norm": tts_norm,
+            #})
+
 
 class VITAMetaForCausalLM(ABC):
     @abstractmethod
@@ -77,14 +109,22 @@ class VITAMetaForCausalLM(ABC):
     def get_audio_encoder(self):
         return self.get_model().get_audio_encoder()
 
-    def initialize_lm_head(self, model_args):
+    def get_tts_adapter(self):
+        return getattr(self.get_model(), "post_tts_module", None)
 
+    def initialize_lm_head(self, model_args):
         setattr(self.config, "tie_word_embeddings", model_args.tie_word_embeddings)
         self.lm_head = nn.Linear(self.config.hidden_size, self.config.total_vocab_size, bias=False)
         if self.config.tie_word_embeddings:
             logger.warning("Tie word embeddings and lm head together.") 
             self.lm_head.weight = self.get_model().embed_tokens.weight
 
+
     def initialize_additional_configs(self, model_args):
         loss_reduction = getattr(model_args, "loss_reduction", "sum")
         setattr(self.config, "loss_reduction", loss_reduction)
+        text_additional_tokens = {token: model_args.text_vocab_size + i for i, token in enumerate(model_args.text_additional)}
+        audio_additional_tokens = {token: model_args.audio_vocab_size + i for i, token in enumerate(model_args.audio_additional)}
+        setattr(self.config, "text_additional_tokens", text_additional_tokens)
+        setattr(self.config, "audio_additional_tokens", audio_additional_tokens)
+        setattr(self.config, "additional_tokens", {**audio_additional_tokens, **text_additional_tokens})
