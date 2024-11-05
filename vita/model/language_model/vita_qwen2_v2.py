@@ -242,7 +242,17 @@ class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
             inputs_embeds = self.replace_with_whisper_feature(
                 audio_features, inputs_embeds, audio_lengths, audio_attention_mask
             )
-            
+            dummy_audio_encoder_loss = 0.
+        else:
+            dummy_audio_input = torch.zeros(1, 80, 3000).to(inputs_embeds)
+            dummy_audio_features = self.model.audio_encoder(dummy_audio_input).last_hidden_state
+            dummy_audio_features = self.model.audio_mm_projector(dummy_audio_features)
+
+            dummy_logits = dummy_audio_features.view(-1, dummy_audio_features.shape[-1]).mean(dim=0) # 1 x H
+            dummy_labels = input_ids.new_zeros(1,)
+
+            dummy_audio_encoder_loss = self.compute_loss(dummy_logits, dummy_labels) * 0.
+
         inputs_embeds = torch.mean(inputs_embeds, dim=2) # B x T x L x H => B x T x H
 
         if getattr(self.config, "scale_embeddings", False):
@@ -289,17 +299,24 @@ class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
             logits_text = logits[..., :-1, :text_vocab_size_padded].contiguous()
             labels_text = labels[..., 1:, -1].contiguous()
             loss_text = self.compute_loss(logits_text, labels_text)
+            # loss_audios, loss_audios_report = [], []
             loss_audios = []
             for i in range(audio_num_codebook):
-                # labels_audio_i = labels[...,i]
-                if (labels[...,i] == IGNORE_INDEX).all():
-                    continue
                 code_start = text_vocab_size_padded+audio_vocab_size_padded * i
                 code_end = text_vocab_size_padded+audio_vocab_size_padded * (i + 1)
                 logits_audio_i = logits[..., :-1, code_start:code_end].contiguous()
                 labels_audio_i = labels[..., 1:, i].contiguous()
+                # assert (labels[...,i] == IGNORE_INDEX).all(), f"{i} {labels.shape} {labels[...,i]}"
+                if (labels[...,i] == IGNORE_INDEX).all():
+                    # dummy_loss = logits_audio_i.mean() * 0. 
+                    # dummy_loss = logits_audio_i.mean() * 0. 
+                    #dummy_labels = torch.zeros(labels_audio_i.shape).to(labels_audio_i)
+                    #dummy_loss = self.compute_loss(logits_audio_i, dummy_labels) * 0.
+                    #loss_audios.append(dummy_loss)
+                    continue
                 loss_audio_i = self.compute_loss(logits_audio_i, labels_audio_i)
                 loss_audios.append(loss_audio_i)
+                # loss_audios_report.append(loss_audio_i)
 
             losses = [loss_text] + loss_audios
             if self.config.loss_reduction == "mean":
@@ -310,6 +327,8 @@ class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
                 raise ValueError(f"{self.config.loss_reduction} not implemented")
             if len(loss_audios) > 0:
                 loss_audios = torch.stack(loss_audios)
+
+            loss += dummy_audio_encoder_loss
 
         return VITACausalLMOutputWithPast(
             loss=loss,

@@ -296,7 +296,12 @@ class TA2TADataset(Dataset):
             idx = random.randint(0, self.num_samples_list[did]-1)
         else:
             did, idx = self.get_dataset_idx(ix)
+
+        item = self.get_item(did, idx)
+        item["index"] = ix
+        return item
         # did, idx = 1, 504749 # contains eos which is same as pad
+    def get_item(self, did, idx):
         task = self.tasks[did]
         dataset = self.data[did]
         if "textin" in dataset:
@@ -336,11 +341,10 @@ class TA2TADataset(Dataset):
                 codec = get_codec(codec_data)
                 data_dict["codec"] = codec
             data_dict["task"] = task
-            data_dict["index"] = ix
             data_dict["did"] = did
             data_dict["idx"] = idx
         except Exception as e:
-            print("dataset", ix, did, idx, e)
+            print("dataset", did, idx, e)
             print("source", source)
             print("num_rounds_clipped", num_rounds_clipped)
             raise e
@@ -559,12 +563,22 @@ class TA2TADataset(Dataset):
         return batched_input_ids, batched_labels, batched_audio_attention_mask
 
     def collate_fn(self, batch):
+        """
+        audio_lengths = torch.LongTensor(sum([item["audio_lengths"] for item in batch], []))
+        if self.split == "train" and audio_lengths.numel() == 0:
+            _did = 0
+            _idx = random.randint(0, self.num_samples_list[_did]-1)
+            _item = self.get_item(_did, _idx)
+            _item["index"] = _idx
+            batch.append(_item)
+        """
         input_ids, labels, audio_attention_mask = self.extract_input_output(batch)
         tasks, indices, dids, idxs = [[item[key] for item in batch] for key in [
             "task", "index", "did", "idx"
         ]]
 
         audio_lengths = torch.LongTensor(sum([item["audio_lengths"] for item in batch], []))
+        # assert audio_lengths.numel() > 0
         
         audios = None
         if audio_lengths.numel() > 0:
