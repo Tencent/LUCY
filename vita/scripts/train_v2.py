@@ -163,6 +163,7 @@ def train():
         model.get_model().initialize_tts_adapter(model_args=model_args)
         model.initialize_lm_head(model_args=model_args)
 
+    print("initializing additional modules...")
     model.initialize_additional_configs(model_args)
     model.model.requires_grad_(not model_args.freeze_backbone)
     model.model.audio_encoder.requires_grad_(not model_args.freeze_audio_encoder)
@@ -175,6 +176,7 @@ def train():
     if model_args.post_tts_adapter:
         # must be after setting model.model's gradient because part of tts_adapter is appended to model.model
         model.get_tts_adapter().requires_grad_(not model_args.freeze_tts_adapter)
+    print("finish initializing additional modules.")
     
     
     model.config.tokenizer_padding_side = text_tokenizer.padding_side
@@ -190,11 +192,13 @@ def train():
                         module = module.to(torch.bfloat16)
 
     audio_encoder = model.get_audio_encoder()
+    print("making data modules...")
     data_module = data_util.make_data_module(
         text_tokenizer=text_tokenizer, 
         audio_processor=audio_encoder.audio_processor, 
         data_args=data_args
     )
+    print("finish making data modules and start training...")
 
     trainer = VITATrainer(model=model, tokenizer=text_tokenizer, args=training_args, **data_module)
     if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):

@@ -40,7 +40,7 @@ class Conversation:
         wrap_qa = lambda msg: f"<|im_start|>{msg}<|im_end|>\n"
         rets = [wrap_qa(f"system\n{self.system}")]
         is_target = [False]
-        assert len(messages) % 2 == 0, len(messages)
+        # assert len(messages) % 2 == 0, len(messages)
         for i, (role, message) in enumerate(messages):
             assert messages, f"message: {message} is empty"
             if type(message) is tuple:

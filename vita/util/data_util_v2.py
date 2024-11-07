@@ -29,11 +29,13 @@ class DataArguments:
     codec_out: Optional[List[str]] = field(default_factory=list)
     text_out: Optional[List[str]] = field(default_factory=list)
     data_jsons: Optional[List[str]] = field(default_factory=list)
+    data_codecs: Optional[List[str]] = field(default_factory=list)
     eval_audio_in: Optional[List[str]] = field(default_factory=list)
     eval_text_in: Optional[List[str]] = field(default_factory=list)
     eval_codec_out: Optional[List[str]] = field(default_factory=list)
     eval_text_out: Optional[List[str]] = field(default_factory=list)
     eval_data_jsons: Optional[List[str]] = field(default_factory=list)
+    eval_data_codecs: Optional[List[str]] = field(default_factory=list)
 
     asr_template: Optional[str] = field(default=None)
     data_ratio: Optional[List[float]] = field(default=None)
@@ -64,15 +66,6 @@ def load_single_turn_data(audio_ins, text_ins, text_outs, codec_outs, max_keep, 
     if codec_outs is None or len(codec_outs) == 0:
         codec_outs = [None] * len(audio_ins)
         assert len(codec_outs) == len(text_ins)
-    
-    # num_samples_total = 0
-    # num_samples_list = []
-    # (
-    #     audio_paths_cat, lengths_cat, starts_cat, ends_cat, 
-    #     textin_cat, textout_offsets_list_cat, codec_offsets_list_cat
-    # ) = (
-    #     [], [], [], [], [], [], []
-    # )
     data = []
     for audio_in, text_in, text_out, codec_out in zip(audio_ins, text_ins, text_outs, codec_outs):
         num_samples, audio_paths, lengths, starts, ends, textin, codec_offsets_list, textout_offsets_list = load_data(
@@ -87,16 +80,6 @@ def load_single_turn_data(audio_ins, text_ins, text_outs, codec_outs, max_keep, 
         textout_offsets_list = textout_offsets_list[:nsamples]
         codec_offsets_list = codec_offsets_list[:nsamples] if codec_offsets_list is not None else None
 
-
-        # num_samples_list.append(nsamples)
-        # num_samples_total += nsamples
-        # audio_paths_cat.append(audio_paths[:nsamples])
-        # lengths_cat.append(lengths[:nsamples])
-        # starts_cat.append(starts[:nsamples])
-        # ends_cat.append(ends[:nsamples])
-        # textin_cat.append(textin[:nsamples])
-        # textout_offsets_list_cat.append(textout_offsets_list[:nsamples])
-        # codec_offsets_list_cat.append(codec_offsets_list[:nsamples] if codec_offsets_list is not None else None)
         d = {
             "audio_paths": audio_paths, "lengths": lengths, 
             "starts": starts, "ends": ends,
@@ -106,13 +89,16 @@ def load_single_turn_data(audio_ins, text_ins, text_outs, codec_outs, max_keep, 
         }
         data.append(d)
     return data
-    # return (
-    #     num_samples_list, num_samples_total, audio_paths_cat, lengths_cat, starts_cat, ends_cat, 
-    #     textin_cat, textout_offsets_list_cat, codec_offsets_list_cat
-    # )
-def load_multi_turn_data(data_jsons):
+
+def load_multi_turn_data(data_jsons, data_codecs):
+    if data_codecs is None or len(data_codecs) == 0:
+        data_codecs = [None] * len(data_jsons)
+    else:
+        data_codecs = [dc if dc != "<NONE>" else None  for dc in data_codecs]
+
     data = []
-    for data_json in data_jsons:
+    for data_json, data_codec in zip(data_jsons, data_codecs):
+        print(f"loading {data_json} and {data_codec}...")
         if data_json.endswith("json"):
             with open(data_json, "r") as f:
                 _d = json.load(f)
@@ -131,14 +117,21 @@ def load_multi_turn_data(data_jsons):
                     d.append(item)
         else:
             raise ValueError(f"Can't read {data_json}")
-        data.append(d)
+        codec_dict = None
+        if data_codec is not None:
+            with open(data_codec) as f:
+                codec_dict = json.load(f)
+        data.append([d, codec_dict])
     return data
 
-def get_codec(codec_data):
+def get_codec(codec_data, codec_dict=None):
     if type(codec_data) is str:
-        with open(codec_data) as f:
-            codec = f.readline().strip()
-        codec = list(map(int,codec.split()))
+        if codec_dict is None:
+            with open(codec_data) as f:
+                codec = f.readline().strip()
+        else:
+            codec = codec_dict[codec_data]
+        codec = list(map(int, codec.split()))
     elif type(codec_data) is list:
         codec = codec_data
     else:
@@ -154,14 +147,15 @@ class TA2TADataset(Dataset):
         data_args: DataArguments, 
         split: Optional[str] = "train"):
         super(TA2TADataset, self).__init__()
+        print(f"initializing {split} dataloader...")
         self.split = split
         if split == "train":
-            self.data_jsons = data_args.data_jsons
+            self.data_jsons, self.data_codecs = data_args.data_jsons, data_args.data_codecs
             self.audio_in, self.text_in, self.codec_out, self.text_out = (
                 data_args.audio_in, data_args.text_in, data_args.codec_out, data_args.text_out, 
             )
         elif split == "eval":
-            self.data_jsons = data_args.eval_data_jsons
+            self.data_jsons, self.data_codecs = data_args.eval_data_jsons, data_args.eval_data_codecs
             self.audio_in, self.text_in, self.codec_out, self.text_out = (
                 data_args.eval_audio_in, 
                 data_args.eval_text_in, 
@@ -186,12 +180,14 @@ class TA2TADataset(Dataset):
         for d in single_turn_data:
             self.num_samples_list.append(len(d["audio_paths"]))
             self.num_samples += len(d["audio_paths"])
+        print("finish loading single turn data")    
 
-        multi_turn_data = load_multi_turn_data(self.data_jsons)
+        multi_turn_data = load_multi_turn_data(self.data_jsons, self.data_codecs)
         self.data += multi_turn_data
-        for d in multi_turn_data:
+        for d, codec_dict in multi_turn_data:
             self.num_samples_list.append(len(d))
             self.num_samples += len(d)
+        print("finish loading multi turn data")    
 
         self.data_ratio = data_args.data_ratio
         self.random_data = not (self.data_ratio is None or len(self.data_ratio) == 0)
@@ -296,6 +292,7 @@ class TA2TADataset(Dataset):
             idx = random.randint(0, self.num_samples_list[did]-1)
         else:
             did, idx = self.get_dataset_idx(ix)
+        # did, idx = 2, 285070 multiple observations 
 
         item = self.get_item(did, idx)
         item["index"] = ix
@@ -307,38 +304,36 @@ class TA2TADataset(Dataset):
         if "textin" in dataset:
             source = self.extract_source(**dataset, task=task, index=idx)
         else:
+            dataset, codec_dict = dataset
             source = deepcopy(dataset[idx])
 
         try:
             if source["conversations"][0]["role"] not in ["user", "assistant"]:
                 source["conversations"] = source["conversations"][1:]
-            num_convs = len(source["conversations"])
-            num_rounds = num_convs // 2 # retain at least 1 round of conversations
-            num_rounds_clipped = random.randint(0, num_rounds-1) if self.split == "train" else 0 # both side inclusive
-            # num_rounds_clipped = 1
-            # print("num_rounds_clipped", num_convs, num_rounds_clipped, source)
+            num_rounds_clipped, valid_until = 0, None    
+            if task in self.tasks_with_audio_output:
 
-            # import pdb; pdb.set_trace()
-            num_convs_remain = min(self.data_args.max_convs, num_convs-num_rounds_clipped*2)
-            valid_until = 0
-            for i in range(0, num_convs_remain, 2):
-                if i == num_convs_remain - 1: # num_convs_remain is odd and is the second last position 
-                    break
-                if source["conversations"][i]["role"] == "user" and source["conversations"][i+1]["role"] == "assistant":
-                    valid_until += 2
-            assert valid_until > 0, f"data: {did} {idx} | {num_convs_remain} {source}"
-            assert valid_until <= num_convs_remain, f"{valid_until} {num_convs_remain}"
+                num_convs = len(source["conversations"])
+                num_rounds = num_convs // 2 # retain at least 1 round of conversations
+                num_rounds_clipped = random.randint(0, num_rounds-1) if self.split == "train" else 0 # both side inclusive
 
-            source["conversations"] = source["conversations"][:valid_until] 
+                num_convs_remain = min(self.data_args.max_convs, num_convs-num_rounds_clipped*2)
+                valid_until = 0
+                for i in range(0, num_convs_remain, 2):
+                    if i == num_convs_remain - 1: # num_convs_remain is odd and is the second last position 
+                        break
+                    if source["conversations"][i]["role"] in ["user", "observation"] and source["conversations"][i+1]["role"] in ["assistant"]:
+                        valid_until += 2
+                assert valid_until > 0, f"data: {did} {idx} | {num_convs_remain} {source}"
+                assert valid_until <= num_convs_remain, f"{valid_until} {num_convs_remain}"
+
+                source["conversations"] = source["conversations"][:valid_until] 
             conversations = source["conversations"]
-            # print(conversations)
             data_dict = self.tokenize_conversation(conversations, task)
-
-            # import pdb; pdb.set_trace()
 
             if task in self.tasks_with_audio_output and "codec" in conversations[-1]:
                 codec_data = conversations[-1]["codec"] # last answer
-                codec = get_codec(codec_data)
+                codec = get_codec(codec_data, codec_dict)
                 data_dict["codec"] = codec
             data_dict["task"] = task
             data_dict["did"] = did
@@ -346,7 +341,7 @@ class TA2TADataset(Dataset):
         except Exception as e:
             print("dataset", did, idx, e)
             print("source", source)
-            print("num_rounds_clipped", num_rounds_clipped)
+            print("num_rounds_clipped", num_rounds_clipped, valid_until)
             raise e
 
         return data_dict
@@ -394,6 +389,12 @@ class TA2TADataset(Dataset):
         assert len(conversations) % 2 == 0, conversations 
 
         conv.messages, audios, audio_lengths = [], [], []
+        # count consecutive obersations only once because there might be chain of observations
+        roles = [sent["role"] for sent in conversations]
+        grouped_roles = [role for role, group in groupby(roles)]
+        for i, gr in enumerate(grouped_roles):
+            assert gr in conv.roles[i%2::2], f"{i} {gr} not in {conv.roles[i%2::2]}"
+            
         for i, sentence in enumerate(conversations):
             
             _use_audio_input_random = random.random() > 0.5
@@ -402,7 +403,6 @@ class TA2TADataset(Dataset):
 
             role = sentence["role"]
             
-            assert role in conv.roles[i%2::2], f"{i} {role} not in {conv.roles[i%2::2]}"
             contains_only_wav = "wavpath" in sentence and "content" not in sentence
             contains_only_text = "content" in sentence and "wavpath" not in sentence
             if role == human and not contains_only_text and (contains_only_wav or _use_audio_input):
