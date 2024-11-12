@@ -303,6 +303,7 @@ class TA2TADataset(Dataset):
         dataset = self.data[did]
         if "textin" in dataset:
             source = self.extract_source(**dataset, task=task, index=idx)
+            codec_dict= None
         else:
             dataset, codec_dict = dataset
             source = deepcopy(dataset[idx])
@@ -386,7 +387,6 @@ class TA2TADataset(Dataset):
             conversations = conversations[1:]
         if conversations[-1]["role"] != gpt: # skip the first system prompt
             conversations = conversations[:-1]
-        assert len(conversations) % 2 == 0, conversations 
 
         conv.messages, audios, audio_lengths = [], [], []
         # count consecutive obersations only once because there might be chain of observations
