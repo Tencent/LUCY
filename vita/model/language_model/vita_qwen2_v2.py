@@ -243,7 +243,7 @@ class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
                 audio_features, inputs_embeds, audio_lengths, audio_attention_mask
             )
             dummy_audio_encoder_loss = 0.
-        else:
+        elif self.training:
             dummy_audio_input = torch.zeros(1, 80, 3000).to(inputs_embeds)
             dummy_audio_features = self.model.audio_encoder(dummy_audio_input).last_hidden_state
             dummy_audio_features = self.model.audio_mm_projector(dummy_audio_features)
@@ -252,6 +252,8 @@ class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
             dummy_labels = input_ids.new_zeros(1,)
 
             dummy_audio_encoder_loss = self.compute_loss(dummy_logits, dummy_labels) * 0.
+        else:
+            dummy_audio_encoder_loss = 0.
 
         inputs_embeds = torch.mean(inputs_embeds, dim=2) # B x T x L x H => B x T x H
 
@@ -274,7 +276,7 @@ class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
             position_ids=position_ids,
             past_key_values=past_key_values,
             inputs_embeds=inputs_embeds,
-            use_cache=False,
+            use_cache=self.config.use_cache if use_cache is None else use_cache,
             output_attentions=output_attentions,
             output_hidden_states=True,
             return_dict=return_dict,
