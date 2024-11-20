@@ -274,6 +274,12 @@ class TA2TADataset(Dataset):
                     {"role": "user", "wavpath": audio_data},
                     {"role": "assistant",  "content": text_or + textout_str}
                 ]
+        elif task == "ASRA":
+            text_sq, wavpath_sq, _       = random.choice(self.start_query)
+            convs = [
+                {"role": "user", "wavpath": [wavpath_sq, audio_data]},
+                {"role": "assistant",  "content": textout_str, "codec": codec}
+            ]
         else:
             convs = [
                 {"role": "user", "content": textin_str, "wavpath": audio_data},

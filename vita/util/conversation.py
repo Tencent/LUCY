@@ -58,8 +58,8 @@ class Conversation:
                 rets[-1] += f"{head}{body}{tail}"
             else:
                 raise ValueError(f"{role} not implemented")
-
-        rets, is_target = rets[:-1], is_target[:-1]
+        if role == "assistant":
+            rets, is_target = rets[:-1], is_target[:-1]
         return rets, is_target
 
     def has_function_call(self, message):
