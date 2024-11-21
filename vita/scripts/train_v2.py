@@ -155,6 +155,7 @@ def train():
         )
     else:
         raise ValueError(f"Unknown model type {model_args.model_type}")
+    model.config.use_cache = False
 
     if model_args.initialize_additional_modules:
         print("Initializing additional modules")

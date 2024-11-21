@@ -4,10 +4,11 @@ import torch
 import transformers
 from typing import Optional, List
 from dataclasses import dataclass, field
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from vita.util import set_random_seed, rank0_print, data_util 
+from transformers import AutoTokenizer, AddedToken
+from vita.util import set_random_seed, rank0_print, data_util
 from vita.model import VITAQwen2ForCausalLM
 from vita.scripts.trainer import VITATrainer, get_mm_adapter_state_maybe_zero_3
+from vita.constants import AUDIO_PH
 
 local_rank = None
 
@@ -136,6 +137,9 @@ def train():
         padding_side="right",
         use_fast=True,
     )
+    audio_placeholder = AddedToken(AUDIO_PH)
+    text_tokenizer.add_special_tokens({"additional_special_tokens": [audio_placeholder]})
+
 
     if model_args.model_type == "qwen2":
         model = VITAQwen2ForCausalLM.from_pretrained(

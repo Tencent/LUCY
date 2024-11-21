@@ -10,16 +10,10 @@ from transformers import AutoModelForCausalLM
 from vita.util import data_util
 from vita.util.sampling import sample
 from tqdm import tqdm
-from vita.scripts.train_s3 import ModelArguments
+from vita.scripts.train import ModelArguments
 from snac import SNAC
+from time import time
 
-# ckpt_path = "outputs/vita_qwen2_s1-091124-130019/checkpoint-66000"
-# ckpt_path = "outputs/vita_qwen2_s1_parallel-091324-121440/checkpoint-1000"
-# model = VITAQwen2ForCausalLM.from_pretrained(ckpt_path)
-# config = VITAQwen2Config.from_pretrained(ckpt_path)
-# config.vocab_size = 181120
-# config.tie_word_embeddings = False
-# model = VITAQwen2ForCausalLM.from_pretrained(ckpt_path, config=config)
 @dataclass
 class InferenceArguments:
     ckpt_path: Optional[str] = field(default=None)
@@ -27,6 +21,8 @@ class InferenceArguments:
     snac_sr: Optional[int] = field(default=24000)
     snac_model: Optional[str] = field(default="hubertsiuzdak/snac_24khz")
     output_path: Optional[str] = field(default=None)
+    save_audio: Optional[bool] = field(default=True)
+    output_text_only: Optional[bool] = field(default=False)
 
 def make_infer_inputs(item, dataset, device="cuda:0"):
     task = item["task"]
@@ -127,50 +123,61 @@ def infer():
         for i in range(audio_num_codebook)
     ]).to(device)
     text_pad = torch.LongTensor([dataset.PAD_T]).to(device)
-    for i, item in enumerate(dataset):
-        input_dict = make_infer_inputs(item, dataset, device)
-        text_ends = False
-        audio_ends = False
-        audio_num_layer_ends = -1
-        audio_tokens, text_tokens = [], []
-        for t in tqdm(range(T)):
-            if audio_num_layer_ends == audio_num_codebook:
-                break
-            next_t, next_a, next_ua, past_kv = next_token(
-                model, dataset, **input_dict
-            )
+    with open(f"{infer_args.output_path}/hyp.txt", "w") as f:
+        for i, item in enumerate(dataset):
+            t0 = time()
+            input_dict = make_infer_inputs(item, dataset, device)
+            text_ends = False
+            audio_ends = False
+            audio_num_layer_ends = -1
+            audio_tokens, text_tokens = [], []
+            for t in tqdm(range(T)):
+                if not infer_args.save_audio and text_ends:
+                    break
+                if audio_num_layer_ends == audio_num_codebook:
+                    break
+                next_t, next_a, next_ua, past_kv = next_token(
+                    model, dataset, **input_dict
+                )
 
-            if t < audio_num_codebook:
-                num_pad = audio_num_codebook - t
-                next_a[-num_pad:] = audio_pads_shifted[-num_pad:]
-                next_ua[-num_pad:] = dataset.PAD_A
-            if text_ends:
-                next_t = text_pad
-            if audio_ends:
-                next_a[:audio_num_layer_ends] = audio_pads_shifted[:audio_num_layer_ends]
-                next_ua[:audio_num_layer_ends] = dataset.PAD_A
-                audio_num_layer_ends += 1
-            audio_tokens.append(next_ua)
-            text_tokens.append(next_t)
-            if next_t == dataset.EOT:
-                text_ends = True
-            if next_ua[0] == dataset.EOA:
-                audio_ends = True
-                audio_num_layer_ends = 1
-            next_input_ids = torch.cat([next_a, next_t])
-            next_input_ids = next_input_ids.view(1,1,-1)
-            input_dict = {
-                "input_ids": next_input_ids,
-                "past_key_values": past_kv
-            }
-            current_text = text_tokenizer.decode(torch.cat(text_tokens)) 
-            print(current_text)
-        text_tokens = torch.cat(text_tokens)
-        text = text_tokenizer.decode(text_tokens)
-        audio = torch.stack(audio_tokens)
-        wav = decode_audio(snac, audio).cpu().numpy().reshape(-1)
-        sf.write(f'{infer_args.output_path}/{i}.wav', wav, infer_args.snac_sr)
-
+                if t < audio_num_codebook:
+                    num_pad = audio_num_codebook - t
+                    next_a[-num_pad:] = audio_pads_shifted[-num_pad:]
+                    next_ua[-num_pad:] = dataset.PAD_A
+                if text_ends:
+                    next_t = text_pad
+                if audio_ends:
+                    next_a[:audio_num_layer_ends] = audio_pads_shifted[:audio_num_layer_ends]
+                    next_ua[:audio_num_layer_ends] = dataset.PAD_A
+                    audio_num_layer_ends += 1
+                audio_tokens.append(next_ua)
+                text_tokens.append(next_t)
+                if next_t == dataset.EOT:
+                    text_ends = True
+                if next_ua[0] == dataset.EOA:
+                    audio_ends = True
+                    audio_num_layer_ends = 1
+                next_input_ids = torch.cat([next_a, next_t])
+                if infer_args.output_text_only:
+                    next_input_ids = torch.cat([audio_pads_shifted, next_t])
+                next_input_ids = next_input_ids.view(1,1,-1)
+                input_dict = {
+                    "input_ids": next_input_ids,
+                    "past_key_values": past_kv
+                }
+                current_text = text_tokenizer.decode(torch.cat(text_tokens)) 
+                # print(current_text)
+            text_tokens = torch.cat(text_tokens)
+            text = text_tokenizer.decode(text_tokens)
+            print(text.strip(), file=f)
+            if infer_args.save_audio:
+                audio = torch.stack(audio_tokens)
+                wav = decode_audio(snac, audio).cpu().numpy().reshape(-1)
+                sf.write(f'{infer_args.output_path}/{i}.wav', wav, infer_args.snac_sr)
+            t1 = time()
+            gen_time = t1 - t0
+            wav_dur = len(wav) / infer_args.snac_sr
+            print(f"Used {gen_time:.4f}s to generate {wav_dur:.4f}s audio with RTF: {gen_time/wav_dur}")
 
 if __name__ == "__main__":
     infer()
