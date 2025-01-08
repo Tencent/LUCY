@@ -297,7 +297,7 @@ def batch_parallel_decode(model, tokenizer, input_dict, infer_args, device):
     return text_tokens, audio_tokens
     
 @torch.inference_mode()
-def demo(use_audio_input=True):
+def demo(use_audio_input=False):
     
     print("use_audio_input", use_audio_input)
     parser = transformers.HfArgumentParser((ModelArguments, data_util.DataArguments, InferenceArguments))
@@ -424,19 +424,20 @@ conversation = [{'content': '一名英国大学本科毕业生可以在雅思考
 
 conversation = [{'role': 'user', 'content': '中孚信息是干什么的', 'wavpath': '/mnt/data/alanhshao/vita-e2e/CosyVoice/vita2tts/generated/AudioAgent/fba0222a9d017932c74f640eef0954ef_turn1_q.wav', 'codec': '/mnt/data/alanhshao/vita-e2e/CosyVoice/vita2tts/generated/AudioAgent/fba0222a9d017932c74f640eef0954ef_turn1_q.snac'}, {'role': 'assistant', 'content': '中孚信息是一家以信息技术服务为主导的公司。作为中国大型的IT服务提供商之一，中孚信息为客户提供全方位的信息技术解决方案，包括软件开发、系统集成、云计算、大数据分析、人工智能等领域。中孚信息致力于为企业客户提供高质量的技术支持和创新解决方案，帮助他们提升业务效率和竞争力。', 'wavpath': '/mnt/data/alanhshao/vita-e2e/CosyVoice/vita2tts/generated/AudioAgent/fba0222a9d017932c74f640eef0954ef_turn1_a.wav', 'codec': '/mnt/data/alanhshao/vita-e2e/CosyVoice/vita2tts/generated/AudioAgent/fba0222a9d017932c74f640eef0954ef_turn1_a.snac'}, {'role': 'user', 'content': '中孚信息是国企吗', 'wavpath': '/mnt/data/alanhshao/vita-e2e/CosyVoice/vita2tts/generated/AudioAgent/fba0222a9d017932c74f640eef0954ef_turn2_q.wav', 'codec': '/mnt/data/alanhshao/vita-e2e/CosyVoice/vita2tts/generated/AudioAgent/fba0222a9d017932c74f640eef0954ef_turn2_q.snac'}, {'role': 'assistant', 'content': '是的，中孚信息是一家国有企业。它成立于1999年，总部位于中国北京，并在全国范围内拥有多家分支机构。作为国有企业，中孚信息在信息技术领域扮演着重要的角色，为国家和社会提供技术支持和解决方案。', 'wavpath': '/mnt/data/alanhshao/vita-e2e/CosyVoice/vita2tts/generated/AudioAgent/fba0222a9d017932c74f640eef0954ef_turn2_a.wav', 'codec': '/mnt/data/alanhshao/vita-e2e/CosyVoice/vita2tts/generated/AudioAgent/fba0222a9d017932c74f640eef0954ef_turn2_a.snac'}, {'role': 'user', 'content': '不是国企', 'wavpath': '/mnt/data/alanhshao/vita-e2e/CosyVoice/vita2tts/generated/AudioAgent/fba0222a9d017932c74f640eef0954ef_turn3_q.wav', 'codec': '/mnt/data/alanhshao/vita-e2e/CosyVoice/vita2tts/generated/AudioAgent/fba0222a9d017932c74f640eef0954ef_turn3_q.snac'}, {'role': 'assistant', 'content': '抱歉，我之前给出的回答有误。根据最新信息，中孚信息是一家民营企业，而非国有企业。非常抱歉给您带来了困扰。谢谢您的指正。', 'wavpath': '/mnt/data/alanhshao/vita-e2e/CosyVoice/vita2tts/generated/AudioAgent/fba0222a9d017932c74f640eef0954ef_turn3_a.wav', 'codec': '/mnt/data/alanhshao/vita-e2e/CosyVoice/vita2tts/generated/AudioAgent/fba0222a9d017932c74f640eef0954ef_turn3_a.snac'}]
 
-conversation = [{'role': 'user', 'content': '题目：假设小明手上有5颗水果硬糖，他将其中的3颗糖果分给了小红，还余下2颗糖果。这段情节是真实的还是虚构的？', "wavpath": "/mnt/data/alanhshao/vita-e2e/CosyVoice/vita2tts/generated/Infinity0729_50K/69f3c38c6b1033cf4c0a3e24d4a3e3d0_turn0_q.wav"}]
+# conversation = [{'role': 'user', 'content': '题目：假设小明手上有5颗水果硬糖，他将其中的3颗糖果分给了小红，还余下2颗糖果。这段情节是真实的还是虚构的？', "wavpath": "/mnt/data/alanhshao/vita-e2e/CosyVoice/vita2tts/generated/Infinity0729_50K/69f3c38c6b1033cf4c0a3e24d4a3e3d0_turn0_q.wav"}]
 
-conversation = [{'role': 'user', 'content': 'xcos2Πy+ysin2Πx在x,y,[-2, 2]、[-2, 2]的范围内的极大值，x,y分别取何值保留4位小数，只给答案不给过程', "wavpath": "/mnt/data/alanhshao/vita-e2e/CosyVoice/vita2tts/generated/WildChat/502613b9ed4f13ed6611dcda1953bf75_turn0_q.wav"}]
+# conversation = [{'role': 'user', 'content': 'xcos2Πy+ysin2Πx在x,y,[-2, 2]、[-2, 2]的范围内的极大值，x,y分别取何值保留4位小数，只给答案不给过程', "wavpath": "/mnt/data/alanhshao/vita-e2e/CosyVoice/vita2tts/generated/WildChat/502613b9ed4f13ed6611dcda1953bf75_turn0_q.wav"}]
 
-conversation = [{'role': 'user', 'content': '王鹏家今天第一季度共交了水费138元，三月份交水费48元，王鹏家平均每月交多少元水费？', "wavpath": "/mnt/data/alanhshao/vita-e2e/CosyVoice/vita2tts/generated/KCG60w_50K/db1aef1af18fe9070c6bcd4eb94be2c1_turn0_q.wav"}]
+# conversation = [{'role': 'user', 'content': '王鹏家今天第一季度共交了水费138元，三月份交水费48元，王鹏家平均每月交多少元水费？', "wavpath": "/mnt/data/alanhshao/vita-e2e/CosyVoice/vita2tts/generated/KCG60w_50K/db1aef1af18fe9070c6bcd4eb94be2c1_turn0_q.wav"}]
 
-conversation = [{'role': 'user', 'content': '将一个棱长为6的正方体切割成若干个相同的棱长为整数的小正方体，若这些小正方体的表面积之和是切割前的大正方体的表面积的2倍，则切割成的小正方体的棱长是____。', "wavpath": "/mnt/data/alanhshao/vita-e2e/CosyVoice/vita2tts/generated/KCG60w_50K/915d183abc3ffab94dd63eb56bac3193_turn0_q.wav"}]
+# conversation = [{'role': 'user', 'content': '将一个棱长为6的正方体切割成若干个相同的棱长为整数的小正方体，若这些小正方体的表面积之和是切割前的大正方体的表面积的2倍，则切割成的小正方体的棱长是____。', "wavpath": "/mnt/data/alanhshao/vita-e2e/CosyVoice/vita2tts/generated/KCG60w_50K/915d183abc3ffab94dd63eb56bac3193_turn0_q.wav"}]
 
-conversation = [{'role': 'user', 'content': '$25x25=$'}]
-conversation = [{'role': 'user', 'content': 'The value of $\\log_{8}{2938}$ is between the consecutive integers $a$ and $b$.  Find $a+b$.'}]
-conversation = [{'role': 'user', 'content': '介绍一下中国首都', "wavpath": "/mnt/data/hetinggao/vita-e2e/downloads/tmp8v4j2hiy_0_2.5.wav"}]
+# conversation = [{'role': 'user', 'content': '$25x25=$'}]
+# conversation = [{'role': 'user', 'content': 'The value of $\\log_{8}{2938}$ is between the consecutive integers $a$ and $b$.  Find $a+b$.'}]
+# conversation = [{'role': 'user', 'content': '介绍一下中国首都', "wavpath": "/mnt/data/hetinggao/vita-e2e/downloads/tmp8v4j2hiy_0_2.5.wav"}]
 # conversation = [{'role': 'user', 'content': '请问你是谁', "wavpath": "/mnt/data/hetinggao/vita-e2e/downloads/tmpo19y4f3g.wav"}]
 # conversation = [{'role': 'user', 'content': '请问你是谁', "wavpath": "/mnt/data/hetinggao/vita-e2e/downloads/tmpxyopwt87.wav"}]
-conversation = [{'role': 'user', 'content': '请问你是谁', "wavpath": "/mnt/data/hetinggao/vita-e2e/downloads/tmp7m_hpts4.wav"}]
+# conversation = [{'role': 'user', 'content': '请问你是谁', "wavpath": "/mnt/data/hetinggao/vita-e2e/downloads/tmp7m_hpts4.wav"}]
+conversation = [{'role': 'user', 'content': '讲一个笑话', "wavpath": "/mnt/data/hetinggao/vita-e2e/downloads/tmp7m_hpts4.wav"}]
 if __name__ == "__main__":
     demo()

@@ -32,11 +32,18 @@ class audioEncoderProcessor:
     ):
         self.dataset_conf = dataset_conf
 
-    def process(self, wav_path):
-        try:
-            waveform, sample_rate = torchaudio.load(wav_path)
-        except Exception as e:
-            print(f"cannot open {wav_path}!!!!!!!!!!!!!!!!")
+    def process(self, wav_path=None, start=0, end=None, waveform=None, sample_rate=None):
+        if waveform is None:
+            assert wav_path is not None
+            frame_offset = start
+            num_frames = end - start if end is not None else -1
+            try:
+                waveform, sample_rate = torchaudio.load(wav_path, frame_offset=frame_offset, num_frames=num_frames)
+            except Exception as e:
+                print(f"cannot open {wav_path}!!!!!!!!!!!!!!!!")
+        else:
+            assert sample_rate is not None
+
         if sample_rate != self.dataset_conf["resample_conf"]["resample_rate"]:
             #            sample_rate = self.dataset_conf['resample_conf']['resample_rate']
             waveform = torchaudio.transforms.Resample(
@@ -93,6 +100,8 @@ class audioEncoder(torch.nn.Module):
         self.freeze_encoder = freeze_encoder
         self.freeze_adpter = freeze_adpter
 
+        # self.task_embeddings = torch.nn.Embedding(task_num, llm_embed_dim) # task_num = 10
+
         if adpter_type == "cnn":
             self.adpter = CNNAdapter(enc_out_dim, llm_embed_dim, kernel_size)
         elif adpter_type == "linear":
@@ -111,6 +120,7 @@ class audioEncoder(torch.nn.Module):
             for (name, param) in self.adpter.named_parameters():
                 param.requires_grad = False
 
+
     def forward(
         self,
         speech: torch.Tensor,
@@ -123,6 +133,12 @@ class audioEncoder(torch.nn.Module):
         encoder_out, encoder_mask = self.encoder(speech, speech_lengths)
         inputs_embeds, encoder_mask = self.adpter(encoder_out, encoder_mask)  # B, T, D
         attention_mask = encoder_mask.squeeze(1)  # B, T
+
+        #task_ids = torch.Tensor([[0,3,1,3] for _ in range(len(speech))]).long().to(speech_lengths)
+        #task_embeds = self.task_embeddings(task_ids) # B, 4, D
+        #inputs_embeds = torch.cat((inputs_embeds, task_embeds), 1) # B, (T+4), D
+        #attention_mask = torch.cat([attention_mask, attention_mask.new_ones(len(attention_mask), 4)], dim=1)
+
         assert inputs_embeds.size(1) == attention_mask.size(1)
 
         # audio bos/eos

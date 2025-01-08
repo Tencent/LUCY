@@ -249,7 +249,6 @@ class VITATrainer(Trainer):
                         "weight_decay": 0.0,
                     },
                 ]
-                # import pdb; pdb.set_trace()
             optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(self.args)
 
             self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
@@ -328,6 +327,8 @@ class VITATrainer(Trainer):
                 logs[f"{prefix}loss_text{suffix}"] = round(output["loss_text"].item(), 4)
             for i, audio_loss in enumerate(output["loss_audios"]):
                 logs[f"{prefix}audio_loss_{i}{suffix}"] = round(audio_loss.item(), 4)
+            for i, state_loss in enumerate(output["loss_states"]):
+                logs[f"{prefix}state_loss_{i}{suffix}"] = round(state_loss.item(), 4)
             self.log(logs)
         
         return (loss, output) if return_outputs else loss

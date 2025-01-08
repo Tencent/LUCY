@@ -28,10 +28,13 @@ class LinearProjector(nn.Module):
 
 
 def build_audio_projector(config, **kwargs):
-    projector_type = getattr(config, "audio_projector_type", "linear")
+    projector_type = getattr(config, "mm_audio_projector_type", "linear")
 
     if projector_type == "linear":
         return LinearProjector(config)
+    elif projector_type == "identity":
+        print("initialize identity projector")
+        return nn.Identity()
 
     raise ValueError(f"Unknown projector type: {projector_type}")
 

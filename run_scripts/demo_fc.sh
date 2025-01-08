@@ -18,6 +18,9 @@ MODEL_NAME_OR_PATH=/mnt/data/hetinggao/vita-e2e/outputs/vita_qwen2_s3v2p2p2_zh/c
 MODEL_NAME_OR_PATH=/mnt/data/hetinggao/vita-e2e/outputs/vita_qwen2_s3v2p2p2_zh/checkpoint-51500
 MODEL_NAME_OR_PATH=/mnt/data/hetinggao/vita-e2e/outputs/vita_qwen2_s3v3_zh/checkpoint-81500
 # MODEL_NAME_OR_PATH=/mnt/data/hetinggao/vita-e2e/outputs/vita_qwen2_s4_zh_v4/checkpoint-43400
+# MODEL_NAME_OR_PATH=/mnt/data/hetinggao/Projects/vita-e2e/backups/vita_qwen2_s3v2p4_zh/checkpoint-15000
+# MODEL_NAME_OR_PATH=/mnt/data/hetinggao/Projects/vita-e2e/outputs/vita_qwen2_s3v2p4_zh/checkpoint-31000
+MODEL_NAME_OR_PATH=/mnt/data/hetinggao/Projects/vita-e2e/outputs/vita_qwen2_s3v2p5_zh/checkpoint-26500
 AUDIO_ENCODER="/mnt/data/hetinggao/models/whisper-medium"
 
 EXPNAME=$(basename `dirname $MODEL_NAME_OR_PATH`)

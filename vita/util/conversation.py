@@ -96,5 +96,5 @@ conv_qwen2 = Conversation(
     version=Version.QWEN2,
     messages=(),
     sep="<|im_start|>",
-    func_pattern="<function=google_search>.*</function>",
+    func_pattern="<function=.*</function>",
 )

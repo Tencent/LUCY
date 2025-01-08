@@ -1,3 +1,4 @@
+import yaml
 from transformers import WhisperProcessor, WhisperForAudioClassification
 from .clip.clip_encoder import CLIPVisionTower
 from .eva_clip.eva_clip_encoder import EvaClipVisionTower
@@ -16,7 +17,8 @@ def build_audio_encoder(audio_encoder_config, **kwargs):
         del whisper.projector, whisper.classifier
         audio_encoder = whisper.encoder
         audio_encoder.audio_processor = processor
-    elif "audio-encoder_Mixtral-8x7B_New_dim3584" in audio_encoder_name_or_path.lower():
+    elif "audio-encoder_Mixtral-8x7B_New_dim3584" in audio_encoder_name_or_path.lower() or \
+        "audio-encoder-qwen2-7b-instruct" in audio_encoder_name_or_path.lower():
         with open(audio_encoder_config.mm_audio_encoder + "/train.yaml", "r") as fin:
             configs = yaml.load(fin, Loader=yaml.FullLoader)
 

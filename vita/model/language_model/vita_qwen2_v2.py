@@ -184,6 +184,7 @@ class VITAQwen2Model(VITAMetaModel, Qwen2Model):
 class VITACausalLMOutputWithPast(CausalLMOutputWithPast):
     loss_text: Optional[torch.Tensor] = None
     loss_audios: Optional[torch.Tensor] = None
+    loss_states: Optional[torch.Tensor] = None
     tasks: Optional[List[str]] = None
 
 
@@ -225,12 +226,16 @@ class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         audios: Optional[torch.Tensor] = None,
+        states: Optional[torch.Tensor] = None,
+        state_attention_mask: Optional[torch.Tensor] = None,
         return_dict: Optional[bool] = None,
         tasks: Optional[List[str]] = None,
         indices: Optional[torch.LongTensor] = None,
         dids: Optional[torch.LongTensor] = None,
         idxs: Optional[torch.LongTensor] = None,
-        max_input_length: Optional[int] = 2000,
+        max_input_length: Optional[int] = 1500,
+        state_start: Optional[int] = None, 
+        state_end: Optional[int] = None,
     ) -> Union[Tuple, CausalLMOutputWithPast]:
         post_tts_adapter = getattr(self.config, "post_tts_adapter", False)
         audio_num_codebook = self.config.mm_audio_num_codebook
@@ -267,6 +272,8 @@ class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
             inputs_embeds = inputs_embeds[:,:max_input_length]
             labels = labels[:,:max_input_length]
             attention_mask = attention_mask[:,:max_input_length]
+            if states is not None:
+                state_attention_mask = state_attention_mask[:,:max_input_length]
             #print("modify input_ids to", input_ids.shape, inputs_embeds.shape, attention_mask.sum(-1), "indices", indices, "dids", dids, "idxs", idxs)
 
         
@@ -296,7 +303,7 @@ class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
             logits_audio = hidden_states_audio @ self.lm_head.weight[text_vocab_size_padded:].T
             logits = torch.cat([logits_text, logits_audio], dim=-1)
 
-        loss, loss_text, loss_audios = None, None, None
+        loss, loss_text, loss_audios, loss_states = None, None, None, None
         if labels is not None:
             logits_text = logits[..., :-1, :text_vocab_size_padded].contiguous()
             labels_text = labels[..., 1:, -1].contiguous()
@@ -310,17 +317,28 @@ class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
                 labels_audio_i = labels[..., 1:, i].contiguous()
                 # assert (labels[...,i] == IGNORE_INDEX).all(), f"{i} {labels.shape} {labels[...,i]}"
                 if (labels[...,i] == IGNORE_INDEX).all():
-                    # dummy_loss = logits_audio_i.mean() * 0. 
-                    # dummy_loss = logits_audio_i.mean() * 0. 
-                    #dummy_labels = torch.zeros(labels_audio_i.shape).to(labels_audio_i)
-                    #dummy_loss = self.compute_loss(logits_audio_i, dummy_labels) * 0.
-                    #loss_audios.append(dummy_loss)
                     continue
                 loss_audio_i = self.compute_loss(logits_audio_i, labels_audio_i)
                 loss_audios.append(loss_audio_i)
-                # loss_audios_report.append(loss_audio_i)
 
-            losses = [loss_text] + loss_audios
+            loss_states = []
+            
+            if states is not None:
+                assert state_start is not None
+                assert state_end is not None
+                assert state_attention_mask is not None
+                logits_state = logits[state_attention_mask][...,state_start:state_end]
+                loss_state = self.compute_loss(logits_state, states)
+                loss_states.append(loss_state)
+
+
+            losses = [loss_text] + loss_audios + loss_states
+            loss_weights = torch.tensor(
+                getattr(self.config, "loss_weights", [1.,1.,1.,1.,1.,1.,1.,1.,1.])
+            ).to(loss_text)[:len(losses)]
+
+            losses = [l * w for l, w in zip(losses, loss_weights)]
+
             if self.config.loss_reduction == "mean":
                 loss = sum(losses) / len(losses)
             elif self.config.loss_reduction == "sum":
@@ -330,12 +348,16 @@ class VITAQwen2ForCausalLM(Qwen2ForCausalLM, VITAMetaForCausalLM):
             if len(loss_audios) > 0:
                 loss_audios = torch.stack(loss_audios)
 
+            if len(loss_states) > 0:
+                loss_states = torch.stack(loss_states)
+
             loss += dummy_audio_encoder_loss
 
         return VITACausalLMOutputWithPast(
             loss=loss,
             loss_text=loss_text,
             loss_audios=loss_audios,
+            loss_states=loss_states,
             logits=logits,
             past_key_values=outputs.past_key_values,
             hidden_states=outputs.hidden_states if output_hidden_states else None,

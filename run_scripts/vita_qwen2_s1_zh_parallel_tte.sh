@@ -20,7 +20,7 @@ AUDIO_ENCODER="openai/whisper-medium"
 unset CUDA_VISIBLE_DEVICES
 export PYTHONPATH=$WORK_DIR
 deepspeed --include localhost:0,1,2,3,4,5,6,7 vita/scripts/train_s1.py \
-    --deepspeed config/zero2.json\
+    --deepspeed config/zero2.json \
     --model_type "qwen2" \
     --model_name_or_path /mnt/data/hetinggao/models/Qwen2-1.5B \
     --audio_encoder /mnt/data/hetinggao/models/whisper-medium \

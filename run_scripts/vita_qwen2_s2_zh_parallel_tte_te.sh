@@ -34,9 +34,9 @@ deepspeed --include localhost:0,1,2,3,4,5,6,7 vita/scripts/train_s2.py \
     --model_name_or_path $MODEL_NAME_OR_PATH \
     --audio_encoder /mnt/data/hetinggao/models/whisper-medium \
     --freeze_backbone False \
-    --freeze_tts_adapter False \
-    --freeze_audio_encoder True \
     --freeze_audio_encoder_adapter True \
+    --freeze_audio_encoder True \
+    --freeze_tts_adapter False \
     --freeze_embed_tokens False \
     --per_device_train_batch_size 32 \
     --add_codec_target False \
