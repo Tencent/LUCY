@@ -1,4 +1,4 @@
-accelerate==0.30.1
+accelerate
 deepspeed==0.9.5
 numpy==1.26.4
 torch==2.3.1
