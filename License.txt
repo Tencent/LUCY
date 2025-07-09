@@ -1,6 +1,6 @@
 Tencent is pleased to support the open source community by making LUCY available.
 
-Copyright (C) 2025 THL A29 Limited, a Tencent company.  All rights reserved. 
+Copyright (C) 2025 Tencent.  All rights reserved. 
 
 Terms of the License Terms of LUCY:
 --------------------------------------------------------------------
